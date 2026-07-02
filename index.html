@@ -1,0 +1,2983 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#4f46e5">
+<meta name="description" content="Live Sales & Collection & Activities Tracking">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="HSR Leader">
+<!-- Inline SVG icon for apple-touch-icon -->
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="manifest.json">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate, max-age=0">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<!-- PWA Install Listener - MUST be first script in head -->
+<script>
+var deferredPrompt;
+window.addEventListener('beforeinstallprompt', function(e) {
+    e.preventDefault();
+    deferredPrompt = e;
+    console.log('beforeinstallprompt fired!');
+    setTimeout(function() {
+        var banner = document.getElementById('installBanner');
+        var isStandalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+        if (!isStandalone && banner) banner.classList.add('show');
+    }, 2000);
+});
+</script>
+<script>
+// Force clear any old cached data on page load
+(function(){
+    var oldKeys = Object.keys(localStorage).filter(function(k){
+        return k.indexOf('bizsetu_') === 0;
+    });
+    var allowedKeys = ['bizsetu_users', 'bizsetu_data_v6'];
+    oldKeys.forEach(function(k){
+        if (allowedKeys.indexOf(k) === -1) localStorage.removeItem(k);
+    });
+})();
+</script>
+<title>HSR Leader board - Live Sales & Collection & Activities</title>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" async></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" async></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.0/dist/umd/supabase.min.js"></script>
+<style>
+:root {
+    --primary: #4f46e5; --primary-light: #818cf8; --primary-dark: #3730a3;
+    --secondary: #ec4899; --accent: #f59e0b;
+    --success: #059669; --danger: #dc2626; --info: #0369a1;
+    --bg: #f8fafc; --bg-card: #ffffff;
+    --text: #1e293b; --text-muted: #64748b; --text-light: #94a3b8;
+    --border: #e2e8f0; --shadow: 0 2px 12px rgba(0,0,0,0.06);
+    --shadow-hover: 0 8px 24px rgba(0,0,0,0.1);
+    --gold: #f59e0b; --silver: #94a3b8; --bronze: #d97706;
+}
+
+.dark-mode { --bg:#0f172a; --card-bg:#1e293b; --text:#f1f5f9; --text-light:#94a3b8; --text-muted:#64748b; --border:#334155; }
+.dark-mode .login-page { background:linear-gradient(135deg,#0f172a,#1e1b4b) !important; }
+* { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+body { font-family:'Inter',sans-serif; background: var(--bg); color:var(--text); min-height:100vh; overflow-x:hidden; padding-bottom:90px; -webkit-overflow-scrolling:touch; }
+#mainApp { min-height:100vh; overflow-y:auto; }
+#persons-container { overflow-y:auto; -webkit-overflow-scrolling:touch; padding-bottom:20px; }
+
+.bg-animated { position:fixed; top:0; left:0; width:100%; height:100%; z-index:-1; background: linear-gradient(180deg, #ffffff 0%, #f1f5f9 50%, #e0f2fe 100%); }
+
+.card { background: var(--bg-card); border:1px solid var(--border); border-radius:16px; box-shadow: var(--shadow); transition: all 0.25s ease; }
+.card:hover { transform:translateY(-2px); box-shadow: var(--shadow-hover); }
+
+/* ===== LOGIN SCREEN ===== */
+.login-screen { position:fixed; top:0; left:0; right:0; bottom:0; z-index:9999; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); display:flex; align-items:center; justify-content:center; padding:20px; }
+.login-card { width:100%; max-width:400px; padding:40px 30px; background:#fff; border-radius:24px; box-shadow:0 25px 50px -12px rgba(0,0,0,0.25); }
+.login-logo { text-align:center; margin-bottom:30px; }
+.login-logo-icon { width:70px; height:70px; background:linear-gradient(135deg,var(--primary),var(--secondary)); border-radius:20px; display:flex; align-items:center; justify-content:center; font-size:32px; color:#fff; margin:0 auto 16px; box-shadow:0 10px 30px rgba(79,70,229,0.3); }
+.login-logo-text { font-size:28px; font-weight:800; color:var(--text); }
+.login-logo-sub { font-size:14px; color:var(--text-muted); margin-top:4px; }
+.login-form { display:flex; flex-direction:column; gap:16px; }
+.login-input-group { position:relative; }
+.login-input-icon { position:absolute; left:14px; top:50%; transform:translateY(-50%); color:var(--text-light); font-size:16px; }
+.login-input { width:100%; padding:14px 14px 14px 44px; border-radius:12px; border:2px solid var(--border); background:#f8fafc; color:var(--text); font-size:15px; font-family:inherit; outline:none; transition:all 0.2s ease; }
+.login-input:focus { border-color:var(--primary); background:#fff; box-shadow:0 0 0 4px rgba(79,70,229,0.1); }
+.login-input::placeholder { color:var(--text-light); }
+.login-btn { width:100%; padding:16px; border-radius:12px; border:none; background:linear-gradient(135deg,var(--primary),var(--primary-dark)); color:#fff; font-size:16px; font-weight:700; cursor:pointer; transition:all 0.2s ease; font-family:inherit; box-shadow:0 4px 15px rgba(79,70,229,0.3); }
+.login-btn:hover { transform:translateY(-1px); box-shadow:0 6px 20px rgba(79,70,229,0.4); }
+.login-btn:active { transform:scale(0.98); }
+.login-divider { display:flex; align-items:center; gap:12px; margin:8px 0; color:var(--text-light); font-size:13px; }
+.login-divider::before, .login-divider::after { content:''; flex:1; height:1px; background:var(--border); }
+.login-hint { text-align:center; font-size:12px; color:var(--text-light); margin-top:16px; }
+.login-hint strong { color:var(--primary); }
+
+/* Role badge */
+.role-badge { display:inline-flex; align-items:center; gap:4px; padding:4px 10px; border-radius:20px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; }
+.role-badge.admin { background:rgba(79,70,229,0.1); color:var(--primary); border:1px solid rgba(79,70,229,0.2); }
+.role-badge.user { background:rgba(5,150,105,0.1); color:var(--success); border:1px solid rgba(5,150,105,0.2); }
+
+/* Header */
+.header { position:sticky; top:0; z-index:100; background: rgba(255,255,255,0.95); backdrop-filter:blur(24px); border-bottom:1px solid var(--border); padding:12px 16px; display:flex; justify-content:space-between; align-items:center; }
+.logo { display:flex; align-items:center; gap:8px; }
+.logo-icon { width:36px; height:36px; background:linear-gradient(135deg,var(--primary),var(--secondary)); border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:18px; color:#fff; box-shadow:0 2px 12px rgba(79,70,229,0.25); }
+.logo-text { font-size:20px; font-weight:800; letter-spacing:-0.5px; color:var(--text); }
+.user-info { display:flex; align-items:center; gap:8px; }
+.user-avatar { width:32px; height:32px; border-radius:50%; background:linear-gradient(135deg,var(--primary),var(--secondary)); display:flex; align-items:center; justify-content:center; font-size:12px; color:#fff; font-weight:700; }
+.user-name { font-size:12px; font-weight:700; color:var(--text); }
+.user-role { font-size:10px; color:var(--text-muted); }
+.logout-btn { padding:6px 12px; border-radius:8px; border:1px solid var(--border); background:#f8fafc; color:var(--text-muted); font-size:11px; font-weight:600; cursor:pointer; transition:all 0.2s ease; font-family:inherit; }
+.logout-btn:hover { background:#fef2f2; color:var(--danger); border-color:var(--danger); }
+
+.live-badge { display:flex; align-items:center; gap:5px; background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.15); padding:5px 10px; border-radius:20px; font-size:11px; font-weight:700; color:#dc2626; }
+.live-dot { width:7px; height:7px; background:#ef4444; border-radius:50%; animation:pulse 1.8s infinite; }
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.4;transform:scale(0.7)} }
+
+/* Admin Panel */
+.admin-panel { margin:0 12px 12px; padding:16px; }
+.admin-title { font-size:14px; font-weight:700; color:var(--primary); margin-bottom:12px; display:flex; align-items:center; gap:6px; }
+.admin-stats { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:12px; }
+.admin-stat { padding:12px; text-align:center; border-radius:12px; background:#f8fafc; border:1px solid var(--border); }
+.admin-stat-value { font-size:18px; font-weight:800; color:var(--primary); }
+.admin-stat-label { font-size:10px; color:var(--text-muted); margin-top:2px; }
+
+/* User Management */
+.user-list { max-height:300px; overflow-y:auto; }
+.user-item { display:flex; align-items:center; gap:10px; padding:10px; border-radius:10px; margin-bottom:6px; background:#f8fafc; border:1px solid var(--border); }
+.user-item-avatar { width:32px; height:32px; border-radius:50%; background:linear-gradient(135deg,var(--primary),var(--secondary)); display:flex; align-items:center; justify-content:center; font-size:12px; color:#fff; font-weight:700; flex-shrink:0; }
+.user-item-info { flex:1; min-width:0; }
+.user-item-name { font-size:13px; font-weight:700; color:var(--text); }
+.user-item-detail { font-size:10px; color:var(--text-muted); }
+.user-item-actions { display:flex; gap:4px; }
+.user-item-btn { padding:6px 10px; border-radius:6px; border:1px solid var(--border); background:#fff; color:var(--text-muted); font-size:11px; font-weight:600; cursor:pointer; transition:all 0.2s ease; font-family:inherit; }
+.user-item-btn:hover { background:#fef2f2; color:var(--danger); border-color:var(--danger); }
+
+/* Add User Form */
+.add-user-form { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px; }
+@media (max-width:480px) { .add-user-form { grid-template-columns:1fr; } }
+.add-user-input { padding:10px 12px; border-radius:8px; border:1px solid var(--border); background:#f8fafc; color:var(--text); font-size:13px; font-family:inherit; outline:none; }
+.add-user-input:focus { border-color:var(--primary); background:#fff; }
+.add-user-select { padding:10px 12px; border-radius:8px; border:1px solid var(--border); background:#f8fafc; color:var(--text); font-size:13px; font-family:inherit; outline:none; }
+.add-user-btn { grid-column:span 2; padding:12px; border-radius:8px; border:none; background:linear-gradient(135deg,var(--primary),var(--primary-dark)); color:#fff; font-size:13px; font-weight:700; cursor:pointer; font-family:inherit; }
+@media (max-width:480px) { .add-user-btn { grid-column:span 1; } }
+
+/* Tabs */
+.nav-tabs { display:flex; gap:6px; padding:10px 12px; overflow-x:auto; scrollbar-width:none; -webkit-overflow-scrolling:touch; background:rgba(255,255,255,0.8); backdrop-filter:blur(12px); border-bottom:1px solid var(--border); }
+.nav-tabs::-webkit-scrollbar { display:none; }
+.nav-tab { flex-shrink:0; padding:8px 14px; border-radius:10px; border:1px solid var(--border); background:#fff; color:var(--text-muted); font-size:12px; font-weight:600; cursor:pointer; transition:all 0.25s ease; white-space:nowrap; display:flex; align-items:center; gap:5px; }
+.nav-tab.active { background:linear-gradient(135deg,var(--primary),var(--primary-dark)); color:#fff; border-color:transparent; box-shadow:0 2px 10px rgba(79,70,229,0.25); }
+.nav-tab .flag { font-size:14px; }
+
+.time-toggle { display:flex; gap:0; padding:3px; background:#fff; border-radius:10px; border:1px solid var(--border); margin:10px 12px 12px; }
+.time-btn { flex:1; padding:8px; border:none; background:transparent; color:var(--text-muted); font-size:13px; font-weight:600; border-radius:8px; cursor:pointer; transition:all 0.25s ease; font-family:inherit; }
+.time-btn.active { background:linear-gradient(135deg,var(--accent),#d97706); color:#fff; box-shadow:0 2px 8px rgba(245,158,11,0.2); }
+
+.stats-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; padding:0 12px; margin-bottom:12px; }
+.stat-card { padding:14px 12px; text-align:center; position:relative; overflow:hidden; }
+.stat-card::after { content:''; position:absolute; bottom:0; left:0; right:0; height:3px; border-radius:0 0 16px 16px; }
+.stat-card.sales::after { background:linear-gradient(90deg,transparent,var(--success),transparent); }
+.stat-card.collection::after { background:linear-gradient(90deg,transparent,var(--info),transparent); }
+.stat-label { font-size:10px; color:var(--text-light); text-transform:uppercase; letter-spacing:1.5px; margin-bottom:6px; font-weight:600; }
+.stat-value { font-size:22px; font-weight:800; }
+.stat-value.sales { color:var(--success); }
+.stat-value.collection { color:var(--info); }
+.stat-change { font-size:11px; margin-top:3px; font-weight:600; }
+.stat-change.up { color:var(--success); }
+
+.person-card { margin:0 12px 6px; padding:8px 10px; display:flex; align-items:center; gap:8px; position:relative; cursor:grab; user-select:none; transition:transform 0.2s ease, box-shadow 0.2s ease; }
+.person-card:active { cursor:grabbing; transform:scale(0.98); }
+.person-card.dragging { opacity:0.7; transform:scale(1.02); z-index:50; box-shadow:var(--shadow-hover); }
+.person-card.drag-over { border:1px dashed var(--primary); background:rgba(79,70,229,0.03); }
+.person-card.sso-card { background:linear-gradient(135deg,rgba(79,70,229,0.04),rgba(236,72,153,0.02)); border:1px solid rgba(79,70,229,0.1); }
+.person-card.sso-card .rank-badge { background:linear-gradient(135deg,var(--primary),var(--secondary)) !important; color:#fff !important; box-shadow:0 2px 8px rgba(79,70,229,0.2); }
+
+.drag-handle { color:var(--danger); font-size:12px; cursor:grab; padding:2px; flex-shrink:0; display:flex; align-items:center; }
+.drag-handle:active { cursor:grabbing; }
+.rank-badge { width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:10px; flex-shrink:0; box-shadow:0 2px 6px rgba(0,0,0,0.06); }
+.rank-badge.gold { background:linear-gradient(135deg,#fbbf24,#f59e0b); color:#fff; }
+.rank-badge.silver { background:linear-gradient(135deg,#e2e8f0,#94a3b8); color:#fff; }
+.rank-badge.bronze { background:linear-gradient(135deg,#d97706,var(--bronze)); color:#fff; }
+.rank-badge.normal { background:#f8fafc; color:var(--text-light); border:1px solid var(--border); }
+.person-info { flex:1; min-width:0; }
+.person-name { font-size:12px; font-weight:700; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.person-role { font-size:9px; color:var(--text-light); margin-top:1px; }
+.person-avatar { width:28px; height:28px; border-radius:50%; background:linear-gradient(135deg,var(--primary),var(--secondary)); display:flex; align-items:center; justify-content:center; font-weight:700; font-size:10px; color:#fff; flex-shrink:0; box-shadow:0 2px 6px rgba(79,70,229,0.15); }
+.card-metrics { display:flex; gap:10px; flex-shrink:0; }
+.metric-item { text-align:center; min-width:50px; }
+.metric-label { font-size:8px; color:var(--text-light); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:1px; }
+.metric-value { font-size:13px; font-weight:700; }
+.metric-value.sales { color:var(--success); }
+.metric-value.collection { color:var(--info); }
+.card-actions { display:flex; gap:3px; flex-shrink:0; }
+.btn-icon { width:28px; height:28px; border-radius:6px; border:1px solid var(--border); background:#f8fafc; color:var(--text-light); font-size:11px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.2s ease; }
+.btn-icon:hover { background:#f1f5f9; color:var(--text); }
+.btn-icon.edit:hover { border-color:var(--info); color:var(--info); background:#f0f9ff; }
+.btn-icon.delete:hover { border-color:var(--danger); color:var(--danger); background:#fef2f2; }
+.person-card.top-1 { border-left:2px solid var(--gold); }
+.person-card.top-2 { border-left:2px solid var(--silver); }
+.person-card.top-3 { border-left:2px solid var(--bronze); }
+.person-card.regular { border-left:2px solid transparent; }
+
+/* Flip Card Styles - 3D Animation */
+.card-inner { position:relative; width:100%; transition:all 0.3s ease; }
+.card-front { display:flex; align-items:center; gap:6px; padding:8px 10px; transition:opacity 0.3s ease; }
+.card-back { display:none; flex-direction:column; gap:6px; padding:12px 14px; opacity:0; transition:opacity 0.3s ease; animation:fadeIn 0.3s ease 0.15s both; }
+.card-inner.flipped .card-front { display:none; }
+.card-inner.flipped .card-back { display:flex; opacity:1; }
+@keyframes fadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+/* Card expands when flipped to activities */
+.person-card:has(.card-inner.flipped) { transition:all 0.3s ease; }
+.act-header { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:700; color:var(--text); margin-bottom:4px; flex-shrink:0; }
+.act-header .rank-badge { position:static; transform:none; }
+.act-grid { display:flex; flex-direction:column; gap:4px; width:100%; flex:1; overflow-y:auto; }
+.act-row { display:grid; grid-template-columns:2fr 1fr 1fr 1fr; gap:6px; align-items:center; font-size:11px; padding:4px 0; border-bottom:1px solid #f1f5f9; }
+.act-row.header { font-weight:700; font-size:9px; color:var(--text-light); text-transform:uppercase; letter-spacing:0.5px; border-bottom:2px solid var(--border); padding-bottom:6px; margin-bottom:2px; position:sticky; top:0; background:#fff; z-index:1; }
+.act-row.highlight { background:linear-gradient(90deg,rgba(79,70,229,0.04),transparent); font-size:12px; }
+.act-row.highlight .act-name { color:var(--text); font-weight:700; }
+.act-name { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--text-muted); }
+.act-val { font-weight:700; text-align:right; }
+.act-val.plan { color:#94a3b8; }
+.act-val.act { color:var(--text); }
+.act-pct { font-weight:800; font-size:10px; text-align:right; }
+.act-pct.good { color:#059669; }
+.act-pct.avg { color:var(--accent); }
+.act-pct.low { color:var(--danger); }
+/* Last Updated Strip */
+.last-updated-strip { position:absolute;bottom:0;left:0;right:0;font-size:8px;color:#fff;background:linear-gradient(90deg,rgba(79,70,229,0.7),rgba(124,58,237,0.7));padding:2px 8px;text-align:center;border-radius:0 0 10px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none; }
+/* Install Banner */
+.install-banner { display:none;position:fixed;bottom:0;left:0;right:0;background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:#fff;padding:14px 16px;z-index:9999;box-shadow:0 -4px 20px rgba(0,0,0,0.2);animation:slideUp 0.4s ease; }
+.install-banner.show { display:flex;align-items:center;justify-content:space-between;gap:12px; }
+.install-banner .install-text { font-size:14px;font-weight:600; }
+.install-banner .install-text small { display:block;font-size:11px;font-weight:400;opacity:0.9;margin-top:2px; }
+.install-banner .install-btn { background:#fff;color:var(--primary);border:none;padding:8px 18px;border-radius:20px;font-weight:700;font-size:13px;cursor:pointer;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.2); }
+.install-banner .install-close { background:none;border:none;color:#fff;font-size:18px;cursor:pointer;opacity:0.7;padding:4px; }
+@keyframes slideUp { from { transform:translateY(100%); } to { transform:translateY(0); } }
+/* Standalone mode (installed app) */
+@media all and (display-mode: standalone) { .install-banner,.app-install-hint { display:none !important; } body { padding-bottom:0; } }
+.flip-btn { width:24px; height:24px; border-radius:50%; border:none; background:linear-gradient(135deg,var(--accent),#d97706); color:#fff; font-size:10px; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0; box-shadow:0 2px 6px rgba(245,158,11,0.3); transition:all 0.2s ease; }
+.flip-btn:hover { transform:scale(1.1); }
+.flip-btn.back { background:linear-gradient(135deg,var(--primary),var(--primary-dark)); }
+
+.section-title { padding:6px 12px; margin:6px 0 4px; font-size:11px; font-weight:700; color:var(--text-muted); display:flex; align-items:center; gap:6px; text-transform:uppercase; letter-spacing:1px; }
+.section-title i { color:var(--accent); font-size:10px; }
+
+.state-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; padding:0 12px; }
+.state-card { padding:10px 6px; text-align:center; cursor:pointer; transition:all 0.25s ease; }
+.state-card:hover { transform:translateY(-2px); border-color:var(--primary-light); }
+.state-card.active-state { border-color:var(--primary); background:rgba(79,70,229,0.03); }
+.state-name { font-size:10px; font-weight:700; margin-bottom:4px; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.state-totals { display:flex; justify-content:center; gap:6px; }
+.state-metric-value { font-size:12px; font-weight:700; }
+.state-metric-label { font-size:7px; color:var(--text-light); text-transform:uppercase; }
+
+.modal-overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(15,23,42,0.4); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); z-index:1000; display:none; align-items:center; justify-content:center; padding:16px; }
+.modal-overlay.show { display:flex; }
+.modal-content { width:100%; max-width:380px; max-height:90vh; overflow-y:auto; padding:20px; }
+.modal-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
+.modal-title { font-size:18px; font-weight:700; color:var(--text); }
+.modal-close { width:32px; height:32px; border-radius:50%; border:1px solid var(--border); background:#f8fafc; color:var(--text-muted); cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.2s ease; }
+.modal-close:hover { background:#fef2f2; color:var(--danger); border-color:var(--danger); }
+.form-group { margin-bottom:12px; }
+.form-label { display:block; font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:4px; }
+.form-input { width:100%; padding:12px 14px; border-radius:10px; border:1px solid var(--border); background:#f8fafc; color:var(--text); font-size:15px; font-family:inherit; outline:none; transition:all 0.2s ease; }
+.form-input:focus { border-color:var(--primary-light); background:#fff; box-shadow:0 0 0 3px rgba(79,70,229,0.1); }
+.form-input::placeholder { color:var(--text-light); }
+.form-input:disabled { background:#f1f5f9; color:var(--text-light); cursor:not-allowed; }
+.btn-primary { width:100%; padding:14px; border-radius:12px; border:none; background:linear-gradient(135deg,var(--primary),var(--primary-dark)); color:#fff; font-size:15px; font-weight:700; cursor:pointer; transition:all 0.2s ease; font-family:inherit; box-shadow:0 4px 15px rgba(79,70,229,0.25); }
+.btn-primary:hover { transform:translateY(-1px); box-shadow:0 6px 20px rgba(79,70,229,0.35); }
+.btn-danger { width:100%; padding:14px; border-radius:12px; border:1px solid var(--danger); background:rgba(220,38,38,0.04); color:var(--danger); font-size:15px; font-weight:700; cursor:pointer; transition:all 0.2s ease; font-family:inherit; margin-top:8px; }
+.btn-danger:hover { background:rgba(220,38,38,0.08); }
+
+.bottom-nav { position:fixed; bottom:0; left:0; right:0; display:flex; justify-content:space-around; padding:6px 0 18px; z-index:100; background:rgba(255,255,255,0.95); backdrop-filter:blur(24px); border-top:1px solid var(--border); }
+.nav-item { display:flex; flex-direction:column; align-items:center; gap:3px; padding:6px 14px; color:var(--text-light); font-size:10px; font-weight:600; cursor:pointer; transition:all 0.2s ease; border:none; background:transparent; font-family:inherit; }
+.nav-item.active { color:var(--primary); }
+.nav-item i { font-size:20px; }
+
+.fab-add { position:fixed; bottom:78px; right:14px; width:48px; height:48px; border-radius:50%; background:linear-gradient(135deg,var(--primary),var(--secondary)); border:none; color:#fff; font-size:20px; cursor:pointer; box-shadow:0 4px 16px rgba(79,70,229,0.35); display:flex; align-items:center; justify-content:center; z-index:99; transition:all 0.3s ease; }
+.fab-add:hover { transform:scale(1.1) rotate(90deg); }
+
+.toast-container { position:fixed; top:70px; left:50%; transform:translateX(-50%); z-index:2000; display:flex; flex-direction:column; gap:6px; pointer-events:none; }
+.toast { padding:10px 18px; border-radius:10px; font-size:13px; font-weight:600; color:#fff; backdrop-filter:blur(10px); pointer-events:auto; animation:toastIn 0.3s ease, toastOut 0.3s ease 2.7s forwards; box-shadow:0 4px 12px rgba(0,0,0,0.1); }
+.toast.success { background:rgba(5,150,105,0.95); border:1px solid rgba(5,150,105,0.3); }
+.toast.error { background:rgba(220,38,38,0.95); border:1px solid rgba(220,38,38,0.3); }
+.toast.info { background:rgba(79,70,229,0.95); border:1px solid rgba(79,70,229,0.3); }
+@keyframes toastIn { from{opacity:0;transform:translateY(-15px)} to{opacity:1;transform:translateY(0)} }
+@keyframes toastOut { from{opacity:1;transform:translateY(0)} to{opacity:0;transform:translateY(-15px)} }
+
+@keyframes fadeIn { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+.animate-in { animation:fadeIn 0.4s ease forwards; }
+.delay-1 { animation-delay:0.05s; }
+.delay-2 { animation-delay:0.1s; }
+.delay-3 { animation-delay:0.15s; }
+.delay-4 { animation-delay:0.2s; }
+
+.section { display:none; }
+.section.active { display:block; }
+::-webkit-scrollbar { width:3px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+.empty-state { text-align:center; padding:40px 20px; color:var(--text-light); }
+.empty-state i { font-size:40px; margin-bottom:12px; opacity:0.3; }
+
+/* Restricted message */
+.restricted-msg { text-align:center; padding:60px 20px; color:var(--text-light); }
+.restricted-msg i { font-size:48px; margin-bottom:16px; color:var(--danger); opacity:0.5; }
+.restricted-msg-title { font-size:18px; font-weight:700; color:var(--text); margin-bottom:8px; }
+.restricted-msg-text { font-size:14px; color:var(--text-muted); }
+
+.notif-dropdown { display:none;position:absolute;top:56px;right:12px;width:300px;max-height:360px;overflow-y:auto;background:var(--card-bg);border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,0.15);border:1px solid var(--border);z-index:1000;padding:12px; }
+.notif-dropdown.show { display:block; }
+.notif-item { display:flex;align-items:flex-start;gap:8px;padding:8px;border-bottom:1px solid var(--border);font-size:12px; }
+.notif-item:last-child { border-bottom:none; }
+.notif-item.alert { border-left:3px solid var(--danger);background:rgba(239,68,68,0.04); }
+.notif-item.warn { border-left:3px solid var(--accent);background:rgba(245,158,11,0.04); }
+.notif-item.info { border-left:3px solid var(--primary);background:rgba(79,70,229,0.04); }
+.attendance-btn { font-size:9px;padding:1px 6px;border-radius:10px;border:none;cursor:pointer;font-weight:700;display:inline-flex;align-items:center;gap:3px; }
+.attendance-btn.present { background:rgba(5,150,105,0.12);color:#059669; }
+.attendance-btn.absent { background:rgba(239,68,68,0.12);color:#ef4444; }
+.attendance-btn.leave { background:rgba(245,158,11,0.12);color:#f59e0b; }
+.attendance-btn:not(.present):not(.absent):not(.leave) { background:var(--border);color:var(--text-light); }
+</style>
+<base target="_self">
+</head>
+<body>
+<div class="bg-animated"></div>
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- ===== LOGIN SCREEN ===== -->
+<div class="login-screen" id="loginScreen">
+    <div class="login-card">
+        <div class="login-logo">
+            <div class="login-logo-icon"><i class="fas fa-chart-line"></i></div>
+            <div class="login-logo-text">HSR Leader board</div>
+            <div class="login-logo-sub">Live Sales & Collection & Activities</div>
+        </div>
+        <form class="login-form" id="loginForm" onsubmit="return false;">
+            <div class="login-input-group">
+                <i class="fas fa-user login-input-icon"></i>
+                <input type="text" class="login-input" id="loginUserId" placeholder="User ID" required autocomplete="username">
+            </div>
+            <div class="login-input-group">
+                <i class="fas fa-lock login-input-icon"></i>
+                <input type="password" class="login-input" id="loginPassword" placeholder="Password" required autocomplete="current-password">
+            </div>
+            <button type="button" class="login-btn" onclick="handleLogin(event)"><i class="fas fa-sign-in-alt"></i> Login</button>
+        </form>
+        <div style="text-align:center;margin-top:12px;">
+            <a href="#" onclick="showForgotPassword();return false;" style="color:var(--primary);font-size:13px;font-weight:600;text-decoration:none;">Forgot Password?</a>
+        </div>
+    </div>
+<!-- ===== FORGOT PASSWORD MODAL ===== -->
+<div class="modal-overlay" id="forgotPasswordModal">
+    <div class="modal-content card">
+        <div class="modal-header">
+            <div class="modal-title">Reset Admin Password</div>
+            <button class="modal-close" onclick="closeModal('forgotPasswordModal')"><i class="fas fa-times"></i></button>
+        </div>
+        <form id="forgotPasswordForm" onsubmit="handleForgotPassword(event)">
+            <div class="form-group"><label class="form-label">User ID</label><input type="text" class="form-input" id="forgotUserId" placeholder="Enter your User ID" required oninput="loadSecurityQuestion()"></div>
+            <div class="form-group"><label class="form-label">Security Question</label><input type="text" class="form-input" id="securityQuestionDisplay" readonly style="background:#f1f5f9;"></div>
+            <div class="form-group"><label class="form-label">Answer</label><input type="text" class="form-input" id="securityAnswer" placeholder="Enter answer" required></div>
+            <div class="form-group"><label class="form-label">New Password</label><input type="password" class="form-input" id="newResetPassword" placeholder="Enter new password" required></div>
+            <button type="submit" class="btn-primary"><i class="fas fa-key"></i> Reset Password</button>
+        </form>
+    </div>
+</div>
+
+</div>
+
+<!-- ===== MAIN APP ===== -->
+<div id="mainApp" style="display:none;">
+    <div class="header">
+        <div class="logo">
+            <div class="logo-icon"><i class="fas fa-chart-line"></i></div>
+            <div class="logo-text">HSR Leader board</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+            <div class="user-info" id="userInfo">
+                <div class="user-avatar" id="userAvatar">A</div>
+                <div>
+                    <div class="user-name" id="userName">Admin</div>
+                    <div class="user-role" id="userRoleDisplay"><span class="role-badge admin">Admin</span></div>
+                </div>
+            </div>
+            <div style="position:relative;cursor:pointer;" onclick="toggleNotifications()" id="notifBell">
+                <i class="fas fa-bell" style="font-size:18px;color:var(--text);margin-right:4px;"></i>
+                <span id="notifBadge" style="display:none;position:absolute;top:-6px;right:-4px;background:var(--danger);color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:10px;">0</span>
+            </div>
+            <button class="logout-btn" onclick="logout()"><i class="fas fa-sign-out-alt"></i></button>
+        </div>
+    </div>
+
+    <div class="notif-dropdown card" id="notifDropdown">
+        <div style="font-weight:700;margin-bottom:8px;font-size:14px;"><i class="fas fa-bell" style="margin-right:6px;color:var(--primary);"></i>Notifications</div>
+        <div id="notifList"></div>
+    </div>
+    <div class="nav-tabs" id="stateTabs"></div>
+
+    <div class="time-toggle">
+        <button class="time-btn active" data-period="today">Today</button>
+        <button class="time-btn" data-period="month">This Month</button>
+    </div>
+
+    <div id="mainContent">
+        <!-- Admin Panel (only for admin) -->
+        <div id="adminPanel" style="display:none;">
+            <div class="card admin-panel">
+                <div class="admin-title"><i class="fas fa-crown"></i> Admin Dashboard</div>
+                <div class="admin-stats">
+                    <div class="admin-stat">
+                        <div class="admin-stat-value" id="totalUsers">0</div>
+                        <div class="admin-stat-label">Total Users</div>
+                    </div>
+                    <div class="admin-stat">
+                        <div class="admin-stat-value" id="activeUsers">0</div>
+                        <div class="admin-stat-label">Active Users</div>
+                    </div>
+                    <div class="admin-stat">
+                        <div class="admin-stat-value" id="totalStates">15</div>
+                        <div class="admin-stat-label">States</div>
+                    </div>
+                </div>
+                <div class="admin-title"><i class="fas fa-users-cog"></i> Manage Users</div>
+                <div class="user-list" id="userList"></div>
+                <div class="admin-title" style="margin-top:16px;">
+                    <i class="fas fa-cloud-upload-alt"></i> Backup &amp; Recovery
+                    <button class="user-item-btn" onclick="createBackupNow()" style="margin-left:auto;background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:#fff;border:none;font-size:11px;"><i class="fas fa-save"></i> Backup Now</button>
+                </div>
+                <div id="backupStatus" style="font-size:11px;color:var(--text-light);margin-bottom:8px;"></div>
+                <div class="user-list" id="backupList"></div>
+            </div>
+        </div>
+
+        <!-- User View (only their state) -->
+        <div id="userView">
+            <div class="section active" id="section-state">
+                <div class="stats-row">
+                    <div class="card stat-card sales">
+                        <div class="stat-label">Total Sales</div>
+                        <div class="stat-value sales" id="state-total-sales">₹0</div>
+                        <div class="stat-change up"><i class="fas fa-arrow-up" style="font-size:9px"></i> 0%</div>
+                    </div>
+                    <div class="card stat-card collection">
+                        <div class="stat-label">Total Collection</div>
+                        <div class="stat-value collection" id="state-total-collection">₹0</div>
+                        <div class="stat-change up"><i class="fas fa-arrow-up" style="font-size:9px"></i> 0%</div>
+                    </div>
+                </div>
+                <div class="section-title"><i class="fas fa-users"></i> Team Members</div>
+                <div id="persons-container"></div>
+            </div>
+            <div class="section" id="section-india">
+                <div class="stats-row">
+                    <div class="card stat-card sales">
+                        <div class="stat-label">All India Sales</div>
+                        <div class="stat-value sales" id="india-total-sales">₹0</div>
+                    </div>
+                    <div class="card stat-card collection">
+                        <div class="stat-label">All India Collection</div>
+                        <div class="stat-value collection" id="india-total-collection">₹0</div>
+                    </div>
+                </div>
+                <div class="section-title"><i class="fas fa-map"></i> All States</div>
+                <div class="state-grid" id="india-states-grid"></div>
+            </div>
+        </div>
+    </div>
+
+    
+
+    <div class="bottom-nav">
+        <button class="nav-item active" data-view="state" onclick="switchView('state')"><i class="fas fa-building"></i><span class="nav-label">States</span></button>
+        <button class="nav-item" data-view="india" onclick="switchView('india')"><i class="fas fa-globe-asia"></i><span class="nav-label">India</span></button>
+        <button class="nav-item" data-view="analytics" onclick="switchView('analytics')"><i class="fas fa-chart-line"></i><span class="nav-label">Analytics</span></button>
+        <button class="nav-item" data-view="adduser" id="addUserTab" onclick="switchView('adduser')" hidden><i class="fas fa-user-plus"></i><span class="nav-label">Add User</span></button>
+        <button class="nav-item" data-view="settings" onclick="switchView('settings')"><i class="fas fa-cog"></i><span class="nav-label">Settings</span></button>
+    </div>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal-overlay" id="editModal">
+    <div class="modal-content card">
+        <div class="modal-header">
+            <div class="modal-title">Update Figures</div>
+            <button class="modal-close" onclick="closeModal('editModal')"><i class="fas fa-times"></i></button>
+        </div>
+        <form id="editForm" onsubmit="handleEditSubmit(event)">
+            <input type="hidden" id="editPersonId">
+            <input type="hidden" id="editState">
+            <div class="form-group"><label class="form-label">Person Name</label><input type="text" class="form-input" id="editName" readonly></div>
+            <div class="form-group"><label class="form-label" style="color:var(--text-muted);">Plan Sales (₹)</label><input type="number" class="form-input" id="editPlanSales" placeholder="Enter plan sales" style="background:#f0f9ff;border-color:#bae6fd;"></div>
+            <div class="form-group"><label class="form-label" style="color:var(--text-muted);">Plan Collection (₹)</label><input type="number" class="form-input" id="editPlanCollection" placeholder="Enter plan collection" style="background:#f0f9ff;border-color:#bae6fd;"></div>
+            <div style="border-top:1px solid var(--border);margin:8px 0;"></div>
+            <div class="form-group"><label class="form-label">Actual Sales (₹)</label><input type="number" class="form-input" id="editSales" placeholder="Enter actual sales" required></div>
+            <div class="form-group"><label class="form-label">Actual Collection (₹)</label><input type="number" class="form-input" id="editCollection" placeholder="Enter actual collection" required></div>
+            <div style="border-top:2px solid var(--border);margin:12px 0;padding-top:8px;"><div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:8px;"><i class="fas fa-boxes" style="margin-right:4px;"></i>Products</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                <div><label class="form-label" style="font-size:10px;">Urea (Qty)</label><input type="number" class="form-input" id="editUreaQty" placeholder="Qty" style="font-size:12px;padding:8px;"></div>
+                <div><label class="form-label" style="font-size:10px;">Urea (₹)</label><input type="number" class="form-input" id="editUreaAmt" placeholder="Amount" style="font-size:12px;padding:8px;"></div>
+                <div><label class="form-label" style="font-size:10px;">DAP (Qty)</label><input type="number" class="form-input" id="editDapQty" placeholder="Qty" style="font-size:12px;padding:8px;"></div>
+                <div><label class="form-label" style="font-size:10px;">DAP (₹)</label><input type="number" class="form-input" id="editDapAmt" placeholder="Amount" style="font-size:12px;padding:8px;"></div>
+                <div><label class="form-label" style="font-size:10px;">Seeds (Qty)</label><input type="number" class="form-input" id="editSeedsQty" placeholder="Qty" style="font-size:12px;padding:8px;"></div>
+                <div><label class="form-label" style="font-size:10px;">Seeds (₹)</label><input type="number" class="form-input" id="editSeedsAmt" placeholder="Amount" style="font-size:12px;padding:8px;"></div>
+                <div><label class="form-label" style="font-size:10px;">Pesticides (Qty)</label><input type="number" class="form-input" id="editPestiQty" placeholder="Qty" style="font-size:12px;padding:8px;"></div>
+                <div><label class="form-label" style="font-size:10px;">Pesticides (₹)</label><input type="number" class="form-input" id="editPestiAmt" placeholder="Amount" style="font-size:12px;padding:8px;"></div>
+                <div><label class="form-label" style="font-size:10px;">Fertilizer (Qty)</label><input type="number" class="form-input" id="editFertQty" placeholder="Qty" style="font-size:12px;padding:8px;"></div>
+                <div><label class="form-label" style="font-size:10px;">Fertilizer (₹)</label><input type="number" class="form-input" id="editFertAmt" placeholder="Amount" style="font-size:12px;padding:8px;"></div>
+            </div></div>
+            <div style="border-top:2px solid var(--border);margin:12px 0;padding-top:8px;"><div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:8px;"><i class="fas fa-th" style="margin-right:4px;"></i>Activities</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                <div><label class="form-label" style="font-size:10px;">Farmer Contact</label><div style="display:flex;gap:4px;"><input type="number" class="form-input" id="editPlanFarmerContact" placeholder="Plan" style="font-size:12px;padding:8px;"><input type="number" class="form-input" id="editActFarmerContact" placeholder="Act" style="font-size:12px;padding:8px;" required></div></div>
+                <div><label class="form-label" style="font-size:10px;">GFM</label><div style="display:flex;gap:4px;"><input type="number" class="form-input" id="editPlanGfm" placeholder="Plan" style="font-size:12px;padding:8px;"><input type="number" class="form-input" id="editActGfm" placeholder="Act" style="font-size:12px;padding:8px;" required></div></div>
+                <div><label class="form-label" style="font-size:10px;">OFM</label><div style="display:flex;gap:4px;"><input type="number" class="form-input" id="editPlanOfm" placeholder="Plan" style="font-size:12px;padding:8px;"><input type="number" class="form-input" id="editActOfm" placeholder="Act" style="font-size:12px;padding:8px;" required></div></div>
+                <div><label class="form-label" style="font-size:10px;">Night Halt</label><div style="display:flex;gap:4px;"><input type="number" class="form-input" id="editPlanNightHalt" placeholder="Plan" style="font-size:12px;padding:8px;"><input type="number" class="form-input" id="editActNightHalt" placeholder="Act" style="font-size:12px;padding:8px;" required></div></div>
+                <div><label class="form-label" style="font-size:10px;">Dilution Test</label><div style="display:flex;gap:4px;"><input type="number" class="form-input" id="editPlanDilutionTest" placeholder="Plan" style="font-size:12px;padding:8px;"><input type="number" class="form-input" id="editActDilutionTest" placeholder="Act" style="font-size:12px;padding:8px;" required></div></div>
+                <div><label class="form-label" style="font-size:10px;">Demos</label><div style="display:flex;gap:4px;"><input type="number" class="form-input" id="editPlanDemos" placeholder="Plan" style="font-size:12px;padding:8px;"><input type="number" class="form-input" id="editActDemos" placeholder="Act" style="font-size:12px;padding:8px;" required></div></div>
+                <div><label class="form-label" style="font-size:10px;">Field Visit</label><div style="display:flex;gap:4px;"><input type="number" class="form-input" id="editPlanFieldVisit" placeholder="Plan" style="font-size:12px;padding:8px;"><input type="number" class="form-input" id="editActFieldVisit" placeholder="Act" style="font-size:12px;padding:8px;" required></div></div>
+                <div><label class="form-label" style="font-size:10px;">Field Day</label><div style="display:flex;gap:4px;"><input type="number" class="form-input" id="editPlanFieldDay" placeholder="Plan" style="font-size:12px;padding:8px;"><input type="number" class="form-input" id="editActFieldDay" placeholder="Act" style="font-size:12px;padding:8px;" required></div></div>
+                <div><label class="form-label" style="font-size:10px;">Dealer Appt.</label><div style="display:flex;gap:4px;"><input type="number" class="form-input" id="editPlanDealerAppointment" placeholder="Plan" style="font-size:12px;padding:8px;"><input type="number" class="form-input" id="editActDealerAppointment" placeholder="Act" style="font-size:12px;padding:8px;" required></div></div>
+                <div><label class="form-label" style="font-size:10px;">Dealer YTD</label><div style="display:flex;gap:4px;"><input type="number" class="form-input" id="editPlanDealerAppointed" placeholder="Plan" style="font-size:12px;padding:8px;"><input type="number" class="form-input" id="editActDealerAppointed" placeholder="Act" style="font-size:12px;padding:8px;" required></div></div>
+            </div></div>
+            <button type="submit" class="btn-primary" style="margin-top:12px;"><i class="fas fa-save"></i> Save</button>
+            <button type="button" class="btn-danger" onclick="deletePerson()" id="deleteBtn"><i class="fas fa-trash"></i> Delete</button>
+        </form>
+    </div>
+</div>
+
+<!-- Smart Reset Modal -->
+<div class="modal-overlay" id="smartResetModal">
+    <div class="modal-content card" style="max-width:420px;">
+        <div class="modal-header">
+            <div class="modal-title"><i class="fas fa-redo" style="color:var(--danger);margin-right:6px;"></i>Reset Data</div>
+            <button class="modal-close" onclick="closeModal('smartResetModal')"><i class="fas fa-times"></i></button>
+        </div>
+        <div style="padding:16px;">
+            <!-- State Selection -->
+            <div class="form-group">
+                <label class="form-label">Select State</label>
+                <select class="form-input" id="resetStateSelect" style="font-size:13px;">
+                    <option value="__all__">🌐 All States</option>
+                </select>
+            </div>
+            <!-- Reset Type -->
+            <div class="form-group">
+                <label class="form-label">What to Reset?</label>
+                <div style="display:flex;flex-direction:column;gap:8px;">
+                    <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:8px;border:2px solid var(--border);cursor:pointer;transition:all 0.2s;" onmouseenter="this.style.borderColor='var(--primary)'" onmouseleave="this.style.borderColor='var(--border)'">
+                        <input type="radio" name="resetType" value="activities" checked style="width:16px;height:16px;accent-color:var(--primary);">
+                        <div>
+                            <div style="font-size:13px;font-weight:600;color:var(--text);">📊 Activities Only</div>
+                            <div style="font-size:11px;color:var(--text-light);">Sales, Collection & Activity figures → Zero</div>
+                        </div>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:8px;border:2px solid var(--border);cursor:pointer;transition:all 0.2s;" onmouseenter="this.style.borderColor='var(--danger)'" onmouseleave="this.style.borderColor='var(--border)'">
+                        <input type="radio" name="resetType" value="entries" style="width:16px;height:16px;accent-color:var(--danger);">
+                        <div>
+                            <div style="font-size:13px;font-weight:600;color:var(--text);">👥 All Entries</div>
+                            <div style="font-size:11px;color:var(--text-light);">Team Members + Users + Activities → Delete</div>
+                        </div>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:8px;border:2px solid var(--border);cursor:pointer;transition:all 0.2s;" onmouseenter="this.style.borderColor='#7c3aed'" onmouseleave="this.style.borderColor='var(--border)'">
+                        <input type="radio" name="resetType" value="full" style="width:16px;height:16px;accent-color:#7c3aed;">
+                        <div>
+                            <div style="font-size:13px;font-weight:600;color:var(--text);">💥 Everything</div>
+                            <div style="font-size:11px;color:var(--text-light);">Complete State Reset (Structure + Data)</div>
+                        </div>
+                    </label>
+                </div>
+            </div>
+            <!-- Warning -->
+            <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:8px;padding:10px 12px;margin-top:12px;">
+                <div style="font-size:12px;color:var(--danger);font-weight:600;"><i class="fas fa-exclamation-triangle" style="margin-right:6px;"></i>Warning</div>
+                <div id="resetWarningText" style="font-size:11px;color:var(--text-light);margin-top:4px;">This action cannot be undone!</div>
+            </div>
+            <!-- Buttons -->
+            <div style="display:flex;gap:10px;margin-top:16px;">
+                <button type="button" class="btn-secondary" onclick="closeModal('smartResetModal')" style="flex:1;">Cancel</button>
+                <button type="button" class="btn-danger" onclick="executeSmartReset()" style="flex:1;background:linear-gradient(135deg,#ef4444,#dc2626);"><i class="fas fa-trash-alt"></i> Confirm Reset</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- View Permissions Modal -->
+<div class="modal-overlay" id="viewPermissionsModal">
+    <div class="modal-content card">
+        <div class="modal-header">
+            <div class="modal-title"><i class="fas fa-eye" style="color:var(--primary);margin-right:6px;"></i>Set View Permissions</div>
+            <button class="modal-close" onclick="closeModal('viewPermissionsModal')"><i class="fas fa-times"></i></button>
+        </div>
+        <form id="viewPermissionsForm" onsubmit="saveViewPermissions(event)">
+            <input type="hidden" id="vpUserId">
+            <div class="form-group">
+                <label class="form-label">Team Person</label>
+                <input type="text" class="form-input" id="vpUserName" readonly style="background:#f1f5f9;">
+            </div>
+            <div class="form-group">
+                <label class="form-label">This person can view:</label>
+                <div id="vpCheckboxes" style="max-height:200px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;padding:4px;"></div>
+            </div>
+            <div style="font-size:11px;color:var(--text-light);margin-bottom:12px;">
+                <i class="fas fa-info-circle"></i> Checked = visible | Unchecked = hidden<br>
+                Own card is always visible by default.
+            </div>
+            <button type="submit" class="btn-primary"><i class="fas fa-save"></i> Save Permissions</button>
+        </form>
+    </div>
+</div>
+
+<script>
+
+// ==================== SUPABASE SETUP ====================
+// Supabase Config - REPLACE THESE WITH YOUR VALUES FROM SUPABASE DASHBOARD
+var SUPABASE_URL = 'https://awoakozewfvdyltvjczc.supabase.co';
+var SUPABASE_ANON_KEY = 'sb_publishable_oX7lzYcnE-ELPUcUQvtiyw_z9RBwpXa';
+var sb = null;
+var isSupabaseReady = false;
+
+function initSupabase() {
+    if (SUPABASE_URL === 'YOUR_SUPABASE_URL' || SUPABASE_ANON_KEY === 'YOUR_SUPABASE_ANON_KEY' || SUPABASE_ANON_KEY.indexOf('4bE6um2L7ZyrbAhM1Q2q5x8j8d9e0f1g2h3i4j5k6l7m8n9o0p1q2r3s4t5u6v') !== -1) {
+        console.log('Supabase not configured - using localStorage only');
+        isSupabaseReady = false;
+        return;
+    }
+    try {
+        sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        isSupabaseReady = true;
+        console.log('Supabase connected!');
+        setupRealtimeListeners();
+    } catch(e) {
+        console.error('Supabase init failed:', e);
+        isSupabaseReady = false;
+    }
+}
+
+function setupRealtimeListeners() {
+    if (!isSupabaseReady) return;
+    sb.channel('team_persons_changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'team_persons' }, function(payload){
+            console.log('Realtime update:', payload);
+            loadDataFromSupabase().then(function(){ renderStateSection(currentState); });
+        })
+        .subscribe();
+    sb.channel('app_users_changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'app_users' }, function(payload){
+            console.log('Users updated:', payload);
+            loadUsersFromSupabase().then(function(){ renderAdminPanel(); });
+        })
+        .subscribe();
+}
+
+// Person mapping helpers for Supabase sync
+function personToSupabase(person, stateId) {
+    return {
+        person_id: person.id,
+        name: person.name,
+        state_id: stateId,
+        district: person.district || '',
+        role: person.role || 'TM',
+        sales: person.sales || 0,
+        collection: person.collection || 0,
+        today_sales: person.todaySales || 0,
+        today_collection: person.todayCollection || 0,
+        plan_sales: person.planSales || 0,
+        plan_collection: person.planCollection || 0,
+        today_plan_sales: person.todayPlanSales || 0,
+        today_plan_collection: person.todayPlanCollection || 0,
+        farmer_contact: person.farmerContact || 0,
+        gfm: person.gfm || 0,
+        ofm: person.ofm || 0,
+        night_halt: person.nightHalt || 0,
+        dilution_test: person.dilutionTest || 0,
+        demos: person.demos || 0,
+        field_visit: person.fieldVisit || 0,
+        field_day: person.fieldDay || 0,
+        dealer_appointment: person.dealerAppointment || 0,
+        dealer_appointed: person.dealerAppointed || 0,
+        today_farmer_contact: person.todayFarmerContact || 0,
+        today_gfm: person.todayGfm || 0,
+        today_ofm: person.todayOfm || 0,
+        today_night_halt: person.todayNightHalt || 0,
+        today_dilution_test: person.todayDilutionTest || 0,
+        today_demos: person.todayDemos || 0,
+        today_field_visit: person.todayFieldVisit || 0,
+        today_field_day: person.todayFieldDay || 0,
+        today_dealer_appointment: person.todayDealerAppointment || 0,
+        today_dealer_appointed: person.todayDealerAppointed || 0,
+        plan_farmer_contact: person.planFarmerContact || 0,
+        plan_gfm: person.planGfm || 0,
+        plan_ofm: person.planOfm || 0,
+        plan_night_halt: person.planNightHalt || 0,
+        plan_dilution_test: person.planDilutionTest || 0,
+        plan_demos: person.planDemos || 0,
+        plan_field_visit: person.planFieldVisit || 0,
+        plan_field_day: person.planFieldDay || 0,
+        plan_dealer_appointment: person.planDealerAppointment || 0,
+        plan_dealer_appointed: person.planDealerAppointed || 0,
+        today_plan_farmer_contact: person.todayPlanFarmerContact || 0,
+        today_plan_gfm: person.todayPlanGfm || 0,
+        today_plan_ofm: person.todayPlanOfm || 0,
+        today_plan_night_halt: person.todayPlanNightHalt || 0,
+        today_plan_dilution_test: person.todayPlanDilutionTest || 0,
+        today_plan_demos: person.todayPlanDemos || 0,
+        today_plan_field_visit: person.todayPlanFieldVisit || 0,
+        today_plan_field_day: person.todayPlanFieldDay || 0,
+        today_plan_dealer_appointment: person.todayPlanDealerAppointment || 0,
+        today_plan_dealer_appointed: person.todayPlanDealerAppointed || 0,
+        urea_qty: person.ureaQty || 0,
+        urea_amt: person.ureaAmt || 0,
+        dap_qty: person.dapQty || 0,
+        dap_amt: person.dapAmt || 0,
+        seeds_qty: person.seedsQty || 0,
+        seeds_amt: person.seedsAmt || 0,
+        pesti_qty: person.pestiQty || 0,
+        pesti_amt: person.pestiAmt || 0,
+        fert_qty: person.fertQty || 0,
+        fert_amt: person.fertAmt || 0,
+        attendance: person.attendance || '',
+        last_updated: person.lastUpdated || 0
+    };
+}
+
+function supabaseToPerson(p) {
+    return {
+        id: p.person_id, name: p.name, role: p.role, district: p.district,
+        sales: p.sales, collection: p.collection,
+        todaySales: p.today_sales, todayCollection: p.today_collection,
+        planSales: p.plan_sales, planCollection: p.plan_collection,
+        todayPlanSales: p.today_plan_sales, todayPlanCollection: p.today_plan_collection,
+        farmerContact: p.farmer_contact, gfm: p.gfm, ofm: p.ofm,
+        nightHalt: p.night_halt, dilutionTest: p.dilution_test, demos: p.demos,
+        fieldVisit: p.field_visit, fieldDay: p.field_day,
+        dealerAppointment: p.dealer_appointment, dealerAppointed: p.dealer_appointed,
+        todayFarmerContact: p.today_farmer_contact, todayGfm: p.today_gfm, todayOfm: p.today_ofm,
+        todayNightHalt: p.today_night_halt, todayDilutionTest: p.today_dilution_test,
+        todayDemos: p.today_demos, todayFieldVisit: p.today_field_visit,
+        todayFieldDay: p.today_field_day,
+        todayDealerAppointment: p.today_dealer_appointment,
+        todayDealerAppointed: p.today_dealer_appointed,
+        planFarmerContact: p.plan_farmer_contact, planGfm: p.plan_gfm, planOfm: p.plan_ofm,
+        planNightHalt: p.plan_night_halt, planDilutionTest: p.plan_dilution_test,
+        planDemos: p.plan_demos, planFieldVisit: p.plan_field_visit,
+        planFieldDay: p.plan_field_day,
+        planDealerAppointment: p.plan_dealer_appointment,
+        planDealerAppointed: p.plan_dealer_appointed,
+        todayPlanFarmerContact: p.today_plan_farmer_contact, todayPlanGfm: p.today_plan_gfm,
+        todayPlanOfm: p.today_plan_ofm, todayPlanNightHalt: p.today_plan_night_halt,
+        todayPlanDilutionTest: p.today_plan_dilution_test, todayPlanDemos: p.today_plan_demos,
+        todayPlanFieldVisit: p.today_plan_field_visit, todayPlanFieldDay: p.today_plan_field_day,
+        todayPlanDealerAppointment: p.today_plan_dealer_appointment,
+        todayPlanDealerAppointed: p.today_plan_dealer_appointed,
+        ureaQty: p.urea_qty, ureaAmt: p.urea_amt,
+        dapQty: p.dap_qty, dapAmt: p.dap_amt,
+        seedsQty: p.seeds_qty, seedsAmt: p.seeds_amt,
+        pestiQty: p.pesti_qty, pestiAmt: p.pesti_amt,
+        fertQty: p.fert_qty, fertAmt: p.fert_amt,
+        attendance: p.attendance, lastUpdated: p.last_updated
+    };
+}
+
+async function upsertPersonToSupabase(person, stateId) {
+    if (!isSupabaseReady) return;
+    try {
+        var record = personToSupabase(person, stateId);
+        await sb.from('team_persons').upsert(record, { onConflict: 'person_id' });
+    } catch(e) { console.error('Upsert person error:', e); }
+}
+
+var _users = [];
+
+function getUsers() {
+    return _users;
+}
+
+async function loadUsersFromSupabase() {
+    if (!isSupabaseReady) {
+        _users = JSON.parse(localStorage.getItem('bizsetu_users') || '[]');
+        if (_users.length === 0) { _users = DEFAULT_USERS; saveUsersLocal(); }
+        return;
+    }
+    try {
+        var { data, error } = await sb.from('app_users').select('*');
+        if (error) throw error;
+        if (data && data.length > 0) {
+            _users = data.map(function(u){
+                return {
+                    id: u.user_id, password: u.password, name: u.name,
+                    role: u.role, state: u.state, district: u.district,
+                    manager: u.manager_id, viewPermissions: JSON.parse(u.view_permissions || '[]'),
+                    securityQuestion: u.security_question || '',
+                    securityAnswer: u.security_answer || ''
+                };
+            });
+            saveUsersLocal(); // cache locally
+        } else {
+            // Push local users to Supabase
+            await pushLocalUsersToSupabase();
+        }
+    } catch(e) {
+        console.error('Supabase load users error:', e);
+        _users = JSON.parse(localStorage.getItem('bizsetu_users') || '[]');
+        if (_users.length === 0) { _users = DEFAULT_USERS; }
+    }
+}
+
+async function pushLocalUsersToSupabase() {
+    if (!isSupabaseReady) return;
+    var localUsers = JSON.parse(localStorage.getItem('bizsetu_users') || '[]');
+    if (localUsers.length === 0) localUsers = DEFAULT_USERS;
+    for (var i = 0; i < localUsers.length; i++) {
+        var u = localUsers[i];
+        await sb.from('app_users').upsert({
+            user_id: u.id, password: u.password, name: u.name,
+            role: u.role, state: u.state || 'MP', district: u.district || '',
+            manager_id: u.manager || null,
+            view_permissions: JSON.stringify(u.viewPermissions || []),
+            security_question: u.securityQuestion || '',
+            security_answer: u.securityAnswer || ''
+        }, { onConflict: 'user_id' });
+    }
+    await loadUsersFromSupabase();
+}
+
+function saveUsersLocal() {
+    localStorage.setItem('bizsetu_users', JSON.stringify(_users));
+}
+
+async function saveUsers(users) {
+    _users = users;
+    saveUsersLocal();
+    if (!isSupabaseReady) return;
+    try {
+        for (var i = 0; i < users.length; i++) {
+            var u = users[i];
+            await sb.from('app_users').upsert({
+                user_id: u.id, password: u.password, name: u.name,
+                role: u.role, state: u.state || 'MP', district: u.district || '',
+                manager_id: u.manager || null,
+                view_permissions: JSON.stringify(u.viewPermissions || []),
+                security_question: u.securityQuestion || '',
+                security_answer: u.securityAnswer || ''
+            }, { onConflict: 'user_id' });
+        }
+    } catch(e) { console.error('Supabase save users error:', e); }
+}
+
+async function loadDataFromSupabase() {
+    if (!isSupabaseReady) {
+        // Fallback to localStorage
+        var savedData = localStorage.getItem('bizsetu_data_v6');
+        if (savedData) { try { dataStore = JSON.parse(savedData); } catch(e){} }
+        var savedNames = localStorage.getItem('bizsetu_stateNames');
+        if (savedNames) { try { stateNames = JSON.parse(savedNames); } catch(e){} }
+        states.forEach(function(s){ if(!dataStore[s]) dataStore[s] = {persons:[]}; });
+        return;
+    }
+    try {
+        // Load states
+        var { data: statesData } = await sb.from('states').select('*');
+        if (statesData && statesData.length > 0) {
+            statesData.forEach(function(s){ stateNames[s.id] = s.name; });
+        }
+        // Load team persons
+        var { data: persons } = await sb.from('team_persons').select('*');
+        if (persons && persons.length > 0) {
+            dataStore = {};
+            states.forEach(function(s){ dataStore[s] = {persons:[]}; });
+            persons.forEach(function(p){
+                var person = supabaseToPerson(p);
+                if (dataStore[p.state_id]) dataStore[p.state_id].persons.push(person);
+            });
+            saveDataLocal(); // cache locally
+        } else {
+            // Push local data to Supabase
+            await pushLocalDataToSupabase();
+        }
+    } catch(e) {
+        console.error('Supabase load data error:', e);
+        var savedData = localStorage.getItem('bizsetu_data_v6');
+        if (savedData) { try { dataStore = JSON.parse(savedData); } catch(e2){} }
+    }
+}
+
+async function pushLocalDataToSupabase() {
+    if (!isSupabaseReady) return;
+    for (var stateKey in dataStore) {
+        var persons = dataStore[stateKey].persons;
+        for (var i = 0; i < persons.length; i++) {
+            await upsertPersonToSupabase(persons[i], stateKey);
+        }
+    }
+}
+
+function saveDataLocal() {
+    localStorage.setItem('bizsetu_data_v6', JSON.stringify(dataStore));
+    localStorage.setItem('bizsetu_stateNames', JSON.stringify(stateNames));
+}
+
+async function saveData() {
+    saveDataLocal();
+    if (!isSupabaseReady) return;
+    try {
+        for (var stateKey in dataStore) {
+            var persons = dataStore[stateKey].persons;
+            for (var i = 0; i < persons.length; i++) {
+                await upsertPersonToSupabase(persons[i], stateKey);
+            }
+        }
+    } catch(e) { console.error('Supabase save error:', e); }
+}
+
+// ==================== I18N / TRANSLATIONS ====================
+var i18n = {
+    en: {
+        sales:'Sales',collection:'Collection',today:'Today',thisMonth:'This Month',
+        totalSales:'Total Sales',totalCollection:'Total Collection',teamMembers:'Team Members',
+        states:'States',india:'India',analytics:'Analytics',addUser:'Add User',settings:'Settings',
+        plan:'Plan',actual:'Actual',activities:'Activities',logout:'Logout',login:'Login',
+        adminDashboard:'Admin Dashboard',manageUsers:'Manage Users',totalUsers:'Total Users',
+        activeUsers:'Active Users',changePassword:'Change Password',currentPassword:'Current Password',
+        newPassword:'New Password',confirmPassword:'Confirm New Password',updatePassword:'Update Password',
+        appearance:'Appearance',darkMode:'Dark Mode',hindi:'Hindi',
+        farmerContact:'Farmer Contact',gfm:'GFM',ofm:'OFM',nightHalt:'Night Halt',
+        dilutionTest:'Dilution Test',demos:'Demos',fieldVisit:'Field Visit',fieldDay:'Field Day',
+        dealerAppointment:'Dealer Appt.',dealerAppointed:'Dealer Appointed',
+        noTeamMembers:'No team members in this state.',notifications:'Notifications',
+        attendance:'Attendance',present:'Present',absent:'Absent',leave:'Leave',
+        badges:'Badges',starPerformer:'Star Performer',targetAchiever:'Target Achiever',
+        consistentPerformer:'Consistent',topRanker:'Top Ranker',
+        products:'Products',urea:'Urea',dap:'DAP',seeds:'Seeds',pesticides:'Pesticides',
+        fertilizer:'Fertilizer',bulkUpload:'Bulk Upload',chooseFile:'Choose Excel File',
+        whatsappShare:'Share on WhatsApp',reportingManager:'Reporting Manager',
+        none:'None',markAttendance:'Mark Attendance',viewTeam:'View My Team'
+    },
+    hi: {
+        sales:'बिक्री',collection:'वसूली',today:'आज',thisMonth:'इस महीने',
+        totalSales:'कुल बिक्री',totalCollection:'कुल वसूली',teamMembers:'टीम सदस्य',
+        states:'राज्य',india:'भारत',analytics:'विश्लेषण',addUser:'उपयोगकर्ता जोड़ें',settings:'सेटिंग्स',
+        plan:'लक्ष्य',actual:'वास्तविक',activities:'गतिविधियाँ',logout:'लॉगआउट',login:'लॉगिन',
+        adminDashboard:'एडमिन डैशबोर्ड',manageUsers:'उपयोगकर्ता प्रबंधन',totalUsers:'कुल उपयोगकर्ता',
+        activeUsers:'सक्रिय उपयोगकर्ता',changePassword:'पासवर्ड बदलें',currentPassword:'वर्तमान पासवर्ड',
+        newPassword:'नया पासवर्ड',confirmPassword:'नया पासवर्ड पुष्टि',updatePassword:'अपडेट करें',
+        appearance:'रूप',darkMode:'डार्क मोड',hindi:'हिंदी',
+        farmerContact:'किसान संपर्क',gfm:'GFM',ofm:'OFM',nightHalt:'रात्रि ठहराव',
+        dilutionTest:'डिल्यूशन टेस्ट',demos:'डेमो',fieldVisit:'फील्ड विजिट',fieldDay:'फील्ड डे',
+        dealerAppointment:'डीलर नियुक्ति',dealerAppointed:'डीलर नियुक्त',
+        noTeamMembers:'इस राज्य में कोई टीम सदस्य नहीं।',notifications:'सूचनाएँ',
+        attendance:'उपस्थिति',present:'उपस्थित',absent:'अनुपस्थित',leave:'अवकाश',
+        badges:'बैज',starPerformer:'स्टार प्रदर्शन',targetAchiever:'लक्ष्य प्राप्तकर्ता',
+        consistentPerformer:'सुसंगत',topRanker:'शीर्ष स्थान',
+        products:'उत्पाद',urea:'यूरिया',dap:'DAP',seeds:'बीज',pesticides:'कीटनाशक',
+        fertilizer:'उर्वरक',bulkUpload:'बल्क अपलोड',chooseFile:'एक्सेल फाइल चुनें',
+        whatsappShare:'व्हाट्सएप पर शेयर करें',reportingManager:'रिपोर्टिंग मैनेजर',
+        none:'कोई नहीं',markAttendance:'उपस्थिति चिह्नित करें',viewTeam:'मेरी टीम देखें'
+    }
+};
+var currentLang = 'en';
+function t(key) { return i18n[currentLang][key] || i18n.en[key] || key; }
+function toggleHindi() {
+    currentLang = document.getElementById('hindiToggle').checked ? 'hi' : 'en';
+    localStorage.setItem('bizsetu_lang', currentLang);
+    if (currentView === 'state') renderStateSection(currentState);
+    if (currentView === 'settings') switchView('settings');
+    updateNavLabels();
+}
+function initLanguage() {
+    currentLang = localStorage.getItem('bizsetu_lang') || 'en';
+    var toggle = document.getElementById('hindiToggle');
+    if (toggle) toggle.checked = (currentLang === 'hi');
+}
+function updateNavLabels() {
+    var navItems = [
+        {i:0,en:'States',hi:'राज्य'},{i:1,en:'India',hi:'भारत'},{i:2,en:'Analytics',hi:'विश्लेषण'},
+        {i:3,en:'Add User',hi:'उपयोगकर्ता जोड़ें'},{i:4,en:'Settings',hi:'सेटिंग्स'}
+    ];
+    var labels = document.querySelectorAll('.nav-label');
+    navItems.forEach(function(n){
+        if (labels[n.i]) labels[n.i].textContent = currentLang === 'hi' ? n.hi : n.en;
+    });
+    var timeBtns = document.querySelectorAll('.time-btn');
+    if (timeBtns[0]) timeBtns[0].textContent = t('today');
+    if (timeBtns[1]) timeBtns[1].textContent = t('thisMonth');
+}
+
+
+// ==================== DARK MODE ====================
+function toggleDarkMode() {
+    var isDark = document.getElementById('darkModeToggle').checked;
+    document.body.classList.toggle('dark-mode', isDark);
+    localStorage.setItem('bizsetu_darkMode', isDark ? '1' : '0');
+}
+function initDarkMode() {
+    var saved = localStorage.getItem('bizsetu_darkMode') === '1';
+    document.getElementById('darkModeToggle').checked = saved;
+    if (saved) document.body.classList.add('dark-mode');
+}
+
+// ==================== AUTH SYSTEM ====================
+const DEFAULT_USERS = [
+    { id: 'admin', password: 'admin123', name: 'Administrator', role: 'admin', state: 'ALL', district: '', securityQ: 'What is your company name?', securityA: 'hsr' }
+];
+
+let currentUser = null;
+
+async function initAuth() {
+    try { initSupabase(); } catch(e) { console.log('Supabase init skipped'); isSupabaseReady = false; }
+    try { await loadUsersFromSupabase(); } catch(e) { console.log('Users loaded from localStorage'); }
+    try { await loadDataFromSupabase(); } catch(e) { console.log('Data loaded from localStorage'); }
+    // Ensure admin user always exists
+    const savedUsers = localStorage.getItem('bizsetu_users');
+    if (savedUsers) {
+        try {
+            const parsedUsers = JSON.parse(savedUsers);
+            if (!parsedUsers.find(u => u.id === 'admin')) {
+                parsedUsers.unshift(DEFAULT_USERS[0]);
+                localStorage.setItem('bizsetu_users', JSON.stringify(parsedUsers));
+            }
+        } catch(e) {
+            localStorage.setItem('bizsetu_users', JSON.stringify(DEFAULT_USERS));
+        }
+    } else {
+        localStorage.setItem('bizsetu_users', JSON.stringify(DEFAULT_USERS));
+    }
+    // Load saved data (stateNames + states + dataStore) - preserves all data across deploys
+    var hasSavedData = localStorage.getItem('bizsetu_data_v6');
+    if (hasSavedData) {
+        loadData();
+    } else {
+        // First time: init empty structure
+        initData();
+    }
+    // Auto hourly backup check
+    runAutoBackup();
+    // Periodic backup check every 10 minutes
+    setInterval(runAutoBackup, 10 * 60 * 1000);
+    // Restore session if exists (valid for 7 days)
+    const session = localStorage.getItem('bizsetu_session');
+    const sessionExpiry = localStorage.getItem('bizsetu_session_expiry');
+    var sessionValid = true;
+    if (sessionExpiry && Date.now() > parseInt(sessionExpiry)) {
+        sessionValid = false;
+        localStorage.removeItem('bizsetu_session');
+        localStorage.removeItem('bizsetu_session_expiry');
+    }
+    if (session && sessionValid) {
+        try {
+            const sessionUser = JSON.parse(session);
+            const users = getUsers();
+            const validUser = users.find(u => u.id === sessionUser.id);
+            if (validUser) {
+                currentUser = { ...validUser };
+                delete currentUser.password;
+                showMainApp();
+                console.log('Auto-login: session restored for ' + currentUser.name);
+            } else {
+                localStorage.removeItem('bizsetu_session');
+                localStorage.removeItem('bizsetu_session_expiry');
+                currentUser = null;
+            }
+        } catch(e) { 
+            localStorage.removeItem('bizsetu_session');
+            localStorage.removeItem('bizsetu_session_expiry');
+            currentUser = null; 
+        }
+    }
+    checkDateRollup();
+    // Offline mode support
+    window.addEventListener('online', function(){showToast('Back online!', 'success');});
+    window.addEventListener('offline', function(){showToast('Offline mode - data will sync when online', 'warning');});
+    // Override saveData to work offline
+    var origSaveData = saveData;
+    saveData = function(){
+        origSaveData();
+        if (!navigator.onLine) {
+            var queue = JSON.parse(localStorage.getItem('bizsetu_syncQueue') || '[]');
+            queue.push({timestamp: Date.now(), data: JSON.parse(JSON.stringify(dataStore))});
+            localStorage.setItem('bizsetu_syncQueue', JSON.stringify(queue));
+        }
+    };
+}
+
+function showForgotPassword() {
+    document.getElementById('forgotPasswordForm').reset();
+    document.getElementById('securityQuestionDisplay').value = '';
+    document.getElementById('forgotPasswordModal').classList.add('show');
+}
+
+function loadSecurityQuestion() {
+    const userId = document.getElementById('forgotUserId').value.trim().toLowerCase();
+    const users = getUsers();
+    const user = users.find(u => u.id === userId);
+    if (user && user.securityQ) {
+        document.getElementById('securityQuestionDisplay').value = user.securityQ;
+    } else {
+        document.getElementById('securityQuestionDisplay').value = '';
+    }
+}
+
+async function handleForgotPassword(e) {
+    e.preventDefault();
+    const userId = document.getElementById('forgotUserId').value.trim().toLowerCase();
+    const answer = document.getElementById('securityAnswer').value.trim().toLowerCase();
+    const newPassword = document.getElementById('newResetPassword').value;
+
+    const users = getUsers();
+    const user = users.find(u => u.id === userId);
+
+    if (!user) {
+        showToast('User ID not found!', 'error');
+        return;
+    }
+    if (!user.securityQ || !user.securityA) {
+        showToast('Security question not set! Contact admin.', 'error');
+        return;
+    }
+    if (user.securityA.toLowerCase() !== answer) {
+        showToast('Incorrect answer!', 'error');
+        return;
+    }
+    if (newPassword.length < 4) {
+        showToast('Password must be at least 4 characters!', 'error');
+        return;
+    }
+
+    user.password = newPassword;
+    await saveUsers(users);
+    closeModal('forgotPasswordModal');
+    showToast('Password reset successful! Login with new password.', 'success');
+}
+
+// getUsers() and saveUsers() now defined in Supabase init block above
+
+function handleLogin(e) {
+    e.preventDefault();
+    const userId = document.getElementById('loginUserId').value.trim().toLowerCase();
+    const password = document.getElementById('loginPassword').value;
+
+    const users = getUsers();
+    const user = users.find(u => u.id === userId && u.password === password);
+
+    if (user) {
+        currentUser = { ...user };
+        delete currentUser.password; // Don't store password in session
+        localStorage.setItem('bizsetu_session', JSON.stringify(currentUser));
+        localStorage.setItem('bizsetu_session_expiry', String(Date.now() + 7 * 24 * 60 * 60 * 1000)); // 7 days
+        showMainApp();
+        showToast('Welcome, ' + user.name + '!', 'success');
+    } else {
+        showToast('Invalid User ID or Password!', 'error');
+    }
+    return false;
+}
+
+function showAdminLogin() {
+    document.getElementById('loginUserId').value = 'admin';
+    document.getElementById('loginPassword').value = '';
+    document.getElementById('loginPassword').focus();
+}
+
+function logout() {
+    currentUser = null;
+    localStorage.removeItem('bizsetu_session');
+    localStorage.removeItem('bizsetu_session_expiry');
+    document.getElementById('loginScreen').style.display = 'flex';
+    document.getElementById('mainApp').style.display = 'none';
+    document.getElementById('loginForm').reset();
+    showToast('Logged out successfully!', 'info');
+}
+
+
+// ==================== NOTIFICATIONS ====================
+function toggleNotifications() {
+    document.getElementById('notifDropdown').classList.toggle('show');
+}
+function checkNotifications() {
+    var notifs = [];
+    var allPersons = [];
+    states.forEach(function(s) {
+        dataStore[s].persons.forEach(function(p) {
+            p._state = s; allPersons.push(p);
+        });
+    });
+    allPersons.forEach(function(p) {
+        var sales = currentPeriod==='today'?p.todaySales:p.sales;
+        var planS = currentPeriod==='today'?p.todayPlanSales:p.planSales;
+        if (planS > 0 && (sales/planS)*100 < 50) {
+            notifs.push({type:'alert',text:p.name+' sales achievement is only '+Math.round((sales/planS)*100)+'%'});
+        }
+    });
+    var badge = document.getElementById('notifBadge');
+    if (badge) { badge.textContent = notifs.length; badge.style.display = notifs.length > 0 ? 'inline-block' : 'none'; }
+    var list = document.getElementById('notifList');
+    if (list) {
+        if (notifs.length === 0) list.innerHTML = '<div style="text-align:center;color:var(--text-light);padding:16px;font-size:12px;">No notifications</div>';
+        else list.innerHTML = notifs.map(function(n){return '<div class="notif-item '+n.type+'"><i class="fas fa-'+(n.type==='alert'?'exclamation-circle':n.type==='warn'?'exclamation-triangle':'info-circle')+'" style="margin-top:2px;color:var('+(n.type==='alert'?'--danger':n.type==='warn'?'--accent':'--primary')+');"></i><span>'+n.text+'</span></div>';}).join('');
+    }
+}
+
+
+// ==================== ATTENDANCE ====================
+async function markAttendance(e, personId, state) {
+    e.stopPropagation();
+    var person = dataStore[state].persons.find(function(p){return p.id===personId;});
+    if (!person) return;
+    var states = ['present','absent','leave',''];
+    var idx = states.indexOf(person.attendance||'');
+    person.attendance = states[(idx+1)%4];
+    saveData();
+    renderStateSection(currentState);
+    showToast(person.name + ' marked ' + (person.attendance||'Not marked'), 'success');
+}
+
+
+// ==================== ACHIEVEMENT BADGES ====================
+function getBadges(person) {
+    var badges = [];
+    var totalPlan = (person.planSales||0)+(person.planCollection||0);
+    var totalActual = (person.sales||0)+(person.collection||0);
+    if (totalPlan > 0 && (totalActual/totalPlan)*100 >= 100) badges.push({name:'100% Achiever',icon:'trophy',color:'#f59e0b'});
+    if ((person.planSales||0) > 0 && (person.sales/person.planSales)*100 >= 80) badges.push({name:'Top Sales',icon:'crown',color:'#8b5cf6'});
+    if ((person.planCollection||0) > 0 && (person.collection/person.planCollection)*100 >= 80) badges.push({name:'Top Collection',icon:'medal',color:'#3b82f6'});
+    if (totalActual > 50000) badges.push({name:'High Performer',icon:'star',color:'#059669'});
+    return badges;
+}
+
+
+// ==================== TEAM HIERARCHY ====================
+function populateManagerDropdown() {
+    var select = document.getElementById('newUserManager');
+    if (!select) return;
+    select.innerHTML = '<option value="">No Manager</option>';
+    var users = getUsers();
+    users.forEach(function(u){
+        if (u.role === 'admin' || u.role === 'manager') {
+            var opt = document.createElement('option');
+            opt.value = u.id;
+            opt.textContent = u.name + ' (' + u.role + ')';
+            select.appendChild(opt);
+        }
+    });
+}
+
+
+// ==================== BULK UPLOAD ====================
+async function handleBulkUpload(input) {
+    var file = input.files[0];
+    if (!file) return;
+    if (!window.XLSX) { showToast('Excel library loading...','error'); return; }
+    var reader = new FileReader();
+    reader.onload = async function(e){
+        try {
+            var data = new Uint8Array(e.target.result);
+            var workbook = window.XLSX.read(data, {type:'array'});
+            var firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+            var rows = window.XLSX.utils.sheet_to_json(firstSheet, {header:1});
+            var skipped = 0, created = 0;
+            var users = getUsers();
+            rows.forEach(function(row, idx){
+                if (idx === 0) return; // skip header
+                if (!row[0] || !row[1]) { skipped++; return; }
+                var name = String(row[0]||'').trim();
+                var id = String(row[1]||'').trim().toLowerCase();
+                var password = String(row[2]||'').trim() || '1234';
+                var role = String(row[3]||'team').trim().toLowerCase();
+                var state = String(row[4]||'MP').trim();
+                var district = String(row[5]||'').trim();
+                if (!name || !id || users.find(function(u){return u.id===id;})) { skipped++; return; }
+                users.push({id:id, password:password, name:name, role:role, state:state, district:district});
+                created++;
+            });
+            await saveUsers(users);
+            var resultDiv = document.getElementById('bulkResult');
+            if (resultDiv) resultDiv.innerHTML = '<span style="color:var(--success);"><i class="fas fa-check"></i> '+created+' users created</span>'+(skipped>0?' | <span style="color:var(--accent);">'+skipped+' skipped</span>':'');
+            showToast(created+' users created!','success');
+            input.value = '';
+        } catch(err) {
+            showToast('Excel error: '+err.message,'error');
+        }
+    };
+    reader.readAsArrayBuffer(file);
+}
+
+// ==================== BULK TEAM UPLOAD (with Plan + Actual Activities) ====================
+async function handleBulkTeamUpload(input) {
+    var file = input.files[0];
+    if (!file) return;
+    if (!window.XLSX) { showToast('Excel library loading...','error'); return; }
+    var state = document.getElementById('bulkTeamState') ? document.getElementById('bulkTeamState').value : currentState;
+    var reader = new FileReader();
+    reader.onload = async function(e){
+        try {
+            var data = new Uint8Array(e.target.result);
+            var workbook = window.XLSX.read(data, {type:'array'});
+            var firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+            var rows = window.XLSX.utils.sheet_to_json(firstSheet, {header:1});
+            var skipped = 0, created = 0;
+            rows.forEach(function(row, idx){
+                if (idx === 0) return; // skip header
+                if (!row[0]) { skipped++; return; }
+                var name = String(row[0]||'').trim();
+                var district = String(row[1]||'').trim() || 'District';
+                if (!name) { skipped++; return; }
+                if (!dataStore[state]) dataStore[state] = { persons: [] };
+                var teamId = 'tm-' + name.toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9-]/g,'') + '-' + Date.now() + '-' + idx;
+                // Parse numeric helper
+                var n = function(v) { var val = parseFloat(v); return isNaN(val) ? 0 : val; };
+                dataStore[state].persons.push({
+                    id: teamId, name: name, role: 'TM', district: district, attendance: '',
+                    ureaQty:0, ureaAmt:0, dapQty:0, dapAmt:0, seedsQty:0, seedsAmt:0, pestiQty:0, pestiAmt:0, fertQty:0, fertAmt:0,
+                    // Sales & Collection
+                    sales: n(row[2]), collection: n(row[3]),
+                    todaySales: n(row[4]), todayCollection: n(row[5]),
+                    planSales: n(row[6]), planCollection: n(row[7]),
+                    todayPlanSales: 0, todayPlanCollection: 0,
+                    // Activities: Actual (month) + Plan (month)
+                    farmerContact: n(row[8]),  planFarmerContact: n(row[9]),
+                    gfm: n(row[10]),          planGfm: n(row[11]),
+                    ofm: n(row[12]),          planOfm: n(row[13]),
+                    nightHalt: n(row[14]),    planNightHalt: n(row[15]),
+                    dilutionTest: n(row[16]), planDilutionTest: n(row[17]),
+                    demos: n(row[18]),        planDemos: n(row[19]),
+                    fieldVisit: n(row[20]),   planFieldVisit: n(row[21]),
+                    fieldDay: n(row[22]),     planFieldDay: n(row[23]),
+                    dealerAppointment: n(row[24]), planDealerAppointment: n(row[25]),
+                    dealerAppointed: n(row[26]),   planDealerAppointed: n(row[27]),
+                    // Today actuals (all zero initially)
+                    todayFarmerContact: 0, todayGfm: 0, todayOfm: 0, todayNightHalt: 0, todayDilutionTest: 0,
+                    todayDemos: 0, todayFieldVisit: 0, todayFieldDay: 0, todayDealerAppointment: 0, todayDealerAppointed: 0,
+                    // Today plans (all zero initially)
+                    todayPlanFarmerContact: 0, todayPlanGfm: 0, todayPlanOfm: 0, todayPlanNightHalt: 0, todayPlanDilutionTest: 0,
+                    todayPlanDemos: 0, todayPlanFieldVisit: 0, todayPlanFieldDay: 0, todayPlanDealerAppointment: 0, todayPlanDealerAppointed: 0
+                });
+                created++;
+            });
+            saveData();
+            if (isSupabaseReady) {
+                for (var i = 0; i < dataStore[state].persons.length; i++) {
+                    var p = dataStore[state].persons[i];
+                    await upsertPersonToSupabase(p, state).catch(function(e){});
+                }
+            }
+            var resultDiv = document.getElementById('bulkTeamResult');
+            if (resultDiv) resultDiv.innerHTML = '<span style="color:var(--success);"><i class="fas fa-check"></i> ' + created + ' team members added to ' + (stateNames[state] || state) + '</span>' + (skipped > 0 ? ' | <span style="color:var(--accent);">' + skipped + ' skipped</span>' : '');
+            showToast(created + ' team members added to ' + (stateNames[state] || state) + '!', 'success');
+            input.value = '';
+            renderStateSection(state);
+        } catch(err) {
+            showToast('Excel error: ' + err.message, 'error');
+        }
+    };
+    reader.readAsArrayBuffer(file);
+}
+
+
+function showMainApp() {
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('mainApp').style.display = 'block';
+
+    // Persist session on page visibility change
+    document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'visible' && currentUser) {
+            console.log('Page visible - session restored');
+        }
+    });
+
+    // Update user info in header
+    document.getElementById('userName').textContent = currentUser.name;
+    document.getElementById('userAvatar').textContent = currentUser.name.charAt(0).toUpperCase();
+    document.getElementById('userRoleDisplay').innerHTML = 
+        '<span class="role-badge ' + currentUser.role + '">' + currentUser.role + '</span>';
+
+    // Admin vs Manager vs User vs Team view
+    if (currentUser.role === 'admin') {
+        document.getElementById('adminPanel').style.display = currentView === 'state' ? 'block' : 'none';
+        document.getElementById('fabAdd').style.display = 'flex';
+        document.getElementById('addUserTab').hidden = false;
+        renderAdminPanel();
+    } else if (currentUser.role === 'manager') {
+        document.getElementById('addUserTab').hidden = true;
+        document.getElementById('adminPanel').style.display = 'none';
+        currentState = currentUser.state || 'MP';
+        // Manager can see state tabs and India view
+        document.getElementById('stateTabs').style.display = 'flex';
+        document.getElementById('fabAdd').style.display = 'none';
+    } else if (currentUser.role === 'team') {
+        document.getElementById('addUserTab').hidden = true;
+        document.getElementById('adminPanel').style.display = 'none';
+        // Team person can only see their assigned state
+        currentState = currentUser.state || 'MP';
+        document.getElementById('stateTabs').style.display = 'none';
+        document.getElementById('fabAdd').style.display = 'none';
+    } else {
+        document.getElementById('addUserTab').hidden = true;
+        document.getElementById('adminPanel').style.display = 'none';
+        // User can only see their assigned state
+        currentState = currentUser.state || 'MP';
+        // Hide state tabs for regular users (they only see their state)
+        document.getElementById('stateTabs').style.display = 'none';
+        // Only allow editing their own data
+        document.getElementById('fabAdd').style.display = 'none';
+    }
+
+    initDarkMode();
+    initLanguage();
+    checkNotifications();
+    rebuildStateTabs();
+    renderStateSection(currentState);
+}
+
+// ==================== ADMIN FUNCTIONS ====================
+function renderAdminPanel() {
+    const users = getUsers();
+    document.getElementById('totalUsers').textContent = users.length;
+    document.getElementById('activeUsers').textContent = users.filter(u => u.role === 'user').length;
+
+    const list = document.getElementById('userList');
+    list.innerHTML = '';
+    users.forEach(u => {
+        const item = document.createElement('div');
+        item.className = 'user-item';
+        item.innerHTML = 
+            '<div class="user-item-avatar">' + u.name.charAt(0).toUpperCase() + '</div>' +
+            '<div class="user-item-info">' +
+                '<div class="user-item-name">' + u.name + ' <span class="role-badge ' + u.role + '">' + u.role + '</span></div>' +
+                '<div class="user-item-detail">ID: ' + u.id + ' | State: ' + (u.state || 'ALL') + ' | ' + (u.district || '-') + '</div>' +
+                (u.manager ? '<div class="user-item-detail">Manager: ' + (users.find(function(m){return m.id===u.manager})||{}).name + '</div>' : '') +
+            '</div>' +
+            '<div class="user-item-actions">' +
+                '<button class="user-item-btn" onclick="renameUser(\'' + u.id + '\')" style="margin-right:4px;"><i class="fas fa-edit"></i></button>' +
+                (u.role === 'team' ? '<button class="user-item-btn" onclick="openViewPermissions(\'' + u.id + '\')" style="margin-right:4px;background:rgba(79,70,229,0.08);color:var(--primary);"><i class="fas fa-eye"></i></button>' : '') +
+                '<button class="user-item-btn" onclick="deleteUser(\'' + u.id + '\')">Delete</button>' +
+            '</div>';
+        list.appendChild(item);
+    });
+    renderBackupList();
+}
+
+async function handleAddUser(e) {
+    e.preventDefault();
+    const name = document.getElementById('newUserName').value.trim();
+    const id = document.getElementById('newUserId').value.trim().toLowerCase();
+    const password = document.getElementById('newUserPassword').value;
+    const role = document.getElementById('newUserRole').value;
+    const state = document.getElementById('newUserState').value;
+    const district = document.getElementById('newUserDistrict').value.trim();
+
+    const users = getUsers();
+    if (users.find(u => u.id === id)) {
+        showToast('This ID is already used! Please choose a different ID.', 'error');
+        return;
+    }
+
+    var managerId = document.getElementById('newUserManager').value;
+    var newUser = { id, password, name, role, state, district };
+    if (managerId) newUser.manager = managerId;
+    users.push(newUser);
+    await saveUsers(users);
+
+    // If role is 'team', also add to leaderboard dataStore
+    if (role === 'team') {
+        try {
+            const teamRole = 'TM';
+            const teamName = name;
+            const teamId = 'tm-' + id;
+            if (!dataStore[state]) {
+                dataStore[state] = { persons: [] };
+            }
+            dataStore[state].persons.push({
+                id: teamId,
+                name: teamName,
+                role: teamRole,
+                district: district || 'District',
+                attendance: '',
+                ureaQty:0, ureaAmt:0, dapQty:0, dapAmt:0, seedsQty:0, seedsAmt:0, pestiQty:0, pestiAmt:0, fertQty:0, fertAmt:0,
+                sales: 0, collection: 0,
+                todaySales: 0, todayCollection: 0,
+                planSales: 0, planCollection: 0,
+                todayPlanSales: 0, todayPlanCollection: 0,
+                farmerContact: 0, gfm: 0, ofm: 0, nightHalt: 0, dilutionTest: 0,
+                demos: 0, fieldVisit: 0, fieldDay: 0, dealerAppointment: 0, dealerAppointed: 0,
+                todayFarmerContact: 0, todayGfm: 0, todayOfm: 0, todayNightHalt: 0, todayDilutionTest: 0,
+                todayDemos: 0, todayFieldVisit: 0, todayFieldDay: 0, todayDealerAppointment: 0, todayDealerAppointed: 0,
+                planFarmerContact: 0, planGfm: 0, planOfm: 0, planNightHalt: 0, planDilutionTest: 0,
+                planDemos: 0, planFieldVisit: 0, planFieldDay: 0, planDealerAppointment: 0, planDealerAppointed: 0,
+                todayPlanFarmerContact: 0, todayPlanGfm: 0, todayPlanOfm: 0, todayPlanNightHalt: 0, todayPlanDilutionTest: 0,
+                todayPlanDemos: 0, todayPlanFieldVisit: 0, todayPlanFieldDay: 0, todayPlanDealerAppointment: 0, todayPlanDealerAppointed: 0
+            });
+            saveData();
+            if (isSupabaseReady) {
+                var newPerson = dataStore[state].persons[dataStore[state].persons.length - 1];
+                await upsertPersonToSupabase(newPerson, state);
+            }
+            showToast('Team person added to leaderboard!', 'success');
+            if (currentView === 'state') renderStateSection(currentState);
+            else if (currentView === 'india') renderIndiaSection();
+        } catch (err) {
+            showToast('Error adding team person: ' + err.message, 'error');
+        }
+    }
+
+    if (isSupabaseReady) {
+        await sb.from('app_users').insert({
+            user_id: id, password: password, name: name,
+            role: role, state: state, district: district,
+            manager_id: managerId || null
+        });
+    }
+    renderAdminPanel();
+    showToast('User created: ' + name, 'success');
+    e.target.reset();
+}
+
+async function deleteUser(userId) {
+    if (userId === 'admin') {
+        showToast('Cannot delete admin!', 'error');
+        return;
+    }
+    if (!confirm('Delete user ' + userId + '?')) return;
+
+    const users = getUsers().filter(u => u.id !== userId);
+    await saveUsers(users);
+    if (isSupabaseReady) {
+        await sb.from('app_users').delete().eq('user_id', userId);
+    }
+    renderAdminPanel();
+    showToast('User deleted!', 'success');
+}
+
+async function renameUser(userId) {
+    const users = getUsers();
+    const user = users.find(u => u.id === userId);
+    if (!user) {
+        showToast('User not found!', 'error');
+        return;
+    }
+    const newName = prompt('Enter new name for "' + user.name + '":', user.name);
+    if (!newName || newName.trim() === '') {
+        showToast('Rename cancelled!', 'info');
+        return;
+    }
+    const trimmedName = newName.trim();
+
+    // Update user's name
+    user.name = trimmedName;
+
+    // If this is a team person, also update the leaderboard entry
+    if (user.role === 'team' && user.state) {
+        const state = user.state;
+        const teamId = 'tm-' + user.id;
+        if (dataStore[state] && dataStore[state].persons) {
+            const teamPerson = dataStore[state].persons.find(p => p.id === teamId);
+            if (teamPerson) {
+                teamPerson.name = trimmedName;
+            }
+        }
+        saveData();
+    }
+
+    await saveUsers(users);
+    renderAdminPanel();
+    if (currentView === 'state') renderStateSection(currentState);
+    showToast('Renamed to: ' + trimmedName, 'success');
+}
+
+// ==================== BACKUP & RECOVERY ====================
+function getBackupKey(ts) { return 'bizsetu_backup_' + ts; }
+function getBackupListKey() { return 'bizsetu_backupList'; }
+
+function createBackupNow() {
+    var ts = Date.now();
+    var backup = {
+        timestamp: ts,
+        dateStr: new Date(ts).toLocaleString('en-IN'),
+        dataStore: JSON.parse(JSON.stringify(dataStore)),
+        stateNames: JSON.parse(JSON.stringify(stateNames)),
+        states: JSON.parse(JSON.stringify(states)),
+        users: JSON.parse(JSON.stringify(getUsers()))
+    };
+    localStorage.setItem(getBackupKey(ts), JSON.stringify(backup));
+    var list = JSON.parse(localStorage.getItem(getBackupListKey()) || '[]');
+    list.unshift({timestamp: ts, dateStr: backup.dateStr});
+    if (list.length > 48) {
+        var removed = list.splice(48);
+        removed.forEach(function(r) { localStorage.removeItem(getBackupKey(r.timestamp)); });
+    }
+    localStorage.setItem(getBackupListKey(), JSON.stringify(list));
+    localStorage.setItem('bizsetu_lastBackup', String(ts));
+    renderBackupList();
+    showToast('Backup created: ' + backup.dateStr, 'success');
+}
+
+function runAutoBackup() {
+    var lastBackup = localStorage.getItem('bizsetu_lastBackup');
+    var now = Date.now();
+    var oneHour = 60 * 60 * 1000;
+    if (!lastBackup || (now - parseInt(lastBackup)) > oneHour) {
+        createBackupNow();
+        console.log('Auto hourly backup created');
+    }
+}
+
+function getBackups() {
+    return JSON.parse(localStorage.getItem(getBackupListKey()) || '[]');
+}
+
+function restoreBackup(timestamp) {
+    if (!confirm('Restore data from backup?\n\nThis will REPLACE all current data.\nTimestamp: ' + new Date(parseInt(timestamp)).toLocaleString('en-IN'))) return;
+    var key = getBackupKey(timestamp);
+    var saved = localStorage.getItem(key);
+    if (!saved) { showToast('Backup not found!', 'error'); return; }
+    try {
+        var backup = JSON.parse(saved);
+        dataStore = backup.dataStore;
+        stateNames = backup.stateNames;
+        states = backup.states;
+        localStorage.setItem('bizsetu_data_v6', JSON.stringify(dataStore));
+        localStorage.setItem('bizsetu_stateNames', JSON.stringify(stateNames));
+        localStorage.setItem('bizsetu_states', JSON.stringify(states));
+        localStorage.setItem('bizsetu_users', JSON.stringify(backup.users));
+        saveData();
+        renderStateSection(currentState);
+        renderAdminPanel();
+        rebuildStateTabs();
+        showToast('Data restored from backup!', 'success');
+    } catch(e) {
+        showToast('Restore failed: ' + e.message, 'error');
+    }
+}
+
+function deleteBackup(timestamp) {
+    if (!confirm('Delete this backup?')) return;
+    localStorage.removeItem(getBackupKey(timestamp));
+    var list = getBackups().filter(function(b) { return b.timestamp != timestamp; });
+    localStorage.setItem(getBackupListKey(), JSON.stringify(list));
+    renderBackupList();
+    showToast('Backup deleted', 'info');
+}
+
+function renderBackupList() {
+    var container = document.getElementById('backupList');
+    var statusDiv = document.getElementById('backupStatus');
+    if (!container) return;
+    var backups = getBackups();
+    var lastBackup = localStorage.getItem('bizsetu_lastBackup');
+    if (lastBackup && statusDiv) {
+        var ago = Math.round((Date.now() - parseInt(lastBackup)) / 60000);
+        statusDiv.innerHTML = '<i class="fas fa-clock"></i> Last backup: ' + (ago < 60 ? ago + ' min ago' : Math.round(ago/60) + ' hr ago') + ' | Total: ' + backups.length + ' backups';
+    }
+    if (backups.length === 0) {
+        container.innerHTML = '<div style="text-align:center;color:var(--text-light);font-size:12px;padding:12px;">No backups yet.<br>Click "Backup Now" to create first backup.</div>';
+        return;
+    }
+    container.innerHTML = '';
+    backups.slice(0, 10).forEach(function(b) {
+        var item = document.createElement('div');
+        item.className = 'user-item';
+        item.innerHTML =
+            '<div class="user-item-avatar" style="background:linear-gradient(135deg,#059669,#10b981);font-size:11px;"><i class="fas fa-archive"></i></div>' +
+            '<div class="user-item-info">' +
+                '<div class="user-item-name">' + b.dateStr + '</div>' +
+                '<div class="user-item-detail">Auto hourly backup</div>' +
+            '</div>' +
+            '<div class="user-item-actions">' +
+                '<button class="user-item-btn" onclick="restoreBackup(' + b.timestamp + ')" style="margin-right:4px;background:rgba(79,70,229,0.08);color:var(--primary);"><i class="fas fa-undo"></i> Restore</button>' +
+                '<button class="user-item-btn" onclick="deleteBackup(' + b.timestamp + ')"><i class="fas fa-trash"></i></button>' +
+            '</div>';
+        container.appendChild(item);
+    });
+}
+
+// ==================== VIEW PERMISSIONS ====================
+function openViewPermissions(userId) {
+    const users = getUsers();
+    const user = users.find(u => u.id === userId);
+    if (!user || user.role !== 'team') {
+        showToast('Only team persons can have view permissions!', 'error');
+        return;
+    }
+    document.getElementById('vpUserId').value = userId;
+    document.getElementById('vpUserName').value = user.name + ' (' + user.state + ')';
+
+    // Build checkboxes for all team persons in the same state
+    const state = user.state || currentState;
+    const statePersons = dataStore[state] ? dataStore[state].persons : [];
+    const container = document.getElementById('vpCheckboxes');
+    container.innerHTML = '';
+
+    const myPersonId = 'tm-' + userId;
+    const allowedIds = user.viewPermissions || [];
+
+    statePersons.forEach(p => {
+        const isSelf = p.id === myPersonId;
+        const isChecked = isSelf || allowedIds.includes(p.id);
+        const row = document.createElement('label');
+        row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;background:#f8fafc;border:1px solid var(--border);cursor:pointer;';
+        row.innerHTML =
+            '<input type="checkbox" value="' + p.id + '"' + (isChecked ? ' checked' : '') + (isSelf ? ' disabled' : '') + ' style="width:16px;height:16px;accent-color:var(--primary);">' +
+            '<span style="font-size:13px;font-weight:600;color:var(--text);flex:1;">' + p.name + '</span>' +
+            (isSelf ? '<span style="font-size:10px;color:var(--primary);font-weight:700;">SELF (always)</span>' : '');
+        container.appendChild(row);
+    });
+
+    if (statePersons.length === 0) {
+        container.innerHTML = '<div style="text-align:center;color:var(--text-light);font-size:13px;padding:16px;">No team members in this state yet.</div>';
+    }
+
+    document.getElementById('viewPermissionsModal').classList.add('show');
+}
+
+async function saveViewPermissions(e) {
+    e.preventDefault();
+    const userId = document.getElementById('vpUserId').value;
+    const users = getUsers();
+    const user = users.find(u => u.id === userId);
+    if (!user) {
+        showToast('User not found!', 'error');
+        return;
+    }
+
+    // Collect checked person IDs (excluding self)
+    const checkboxes = document.querySelectorAll('#vpCheckboxes input[type="checkbox"]');
+    const allowedIds = [];
+    checkboxes.forEach(cb => {
+        if (cb.checked && !cb.disabled) {
+            allowedIds.push(cb.value);
+        }
+    });
+
+    user.viewPermissions = allowedIds;
+    await saveUsers(users);
+    closeModal('viewPermissionsModal');
+    showToast('View permissions saved for ' + user.name + '!', 'success');
+}
+
+async function resetUserPassword(userId) {
+    const newPassword = prompt('Enter new password for user: ' + userId);
+    if (!newPassword || newPassword.trim() === '') {
+        showToast('Password reset cancelled!', 'info');
+        return;
+    }
+    if (newPassword.length < 4) {
+        showToast('Password must be at least 4 characters!', 'error');
+        return;
+    }
+    const users = getUsers();
+    const user = users.find(u => u.id === userId);
+    if (!user) {
+        showToast('User not found!', 'error');
+        return;
+    }
+    user.password = newPassword.trim();
+    await saveUsers(users);
+    showToast('Password reset for ' + userId + '!', 'success');
+    renderAdminPanel();
+}
+
+function renderAddUserStates() {
+    const container = document.getElementById('addUserStateList');
+    if (!container) return;
+    container.innerHTML = '';
+    states.forEach((stateKey) => {
+        if (stateKey === 'MP') return;
+        const item = document.createElement('div');
+        item.className = 'user-item';
+        item.innerHTML = 
+            '<div class="user-item-avatar" style="background:linear-gradient(135deg,#059669,#10b981);">' + stateKey.charAt(0) + '</div>' +
+            '<div class="user-item-info">' +
+                '<div class="user-item-name">' + stateNames[stateKey] + '</div>' +
+                '<div class="user-item-detail">Code: ' + stateKey + ' | Team: ' + (dataStore[stateKey] ? dataStore[stateKey].persons.length : 0) + ' members</div>' +
+            '</div>' +
+            '<div class="user-item-actions">' +
+                '<button class="user-item-btn" onclick="renameState(\'' + stateKey + '\')" style="margin-right:4px;"><i class="fas fa-edit"></i></button>' +
+                '<button class="user-item-btn" onclick="deleteState(\'' + stateKey + '\')">Delete</button>' +
+            '</div>';
+        container.appendChild(item);
+    });
+}
+
+async function renameState(stateKey) {
+    const currentName = stateNames[stateKey];
+    const newName = prompt('Enter new DISPLAY NAME for "' + currentName + '":', currentName);
+    if (!newName || newName.trim() === '') {
+        showToast('Rename cancelled!', 'info');
+        return;
+    }
+    const trimmedName = newName.trim();
+
+    // Ask if they want to change the state code (short key) too
+    const newCode = prompt('Enter new STATE CODE (short code like MH, GJ):\nLeave empty to keep "' + stateKey + '"', stateKey);
+
+    if (newCode && newCode.trim() !== '' && newCode.trim().toUpperCase() !== stateKey) {
+        const code = newCode.trim().toUpperCase();
+        // Validate code
+        if (!/^[A-Z0-9]+$/.test(code)) {
+            showToast('State code can only contain letters and numbers!', 'error');
+            return;
+        }
+        if (states.includes(code) && code !== stateKey) {
+            showToast('State code "' + code + '" already exists!', 'error');
+            return;
+        }
+
+        // Migrate data from old key to new key
+        // 1. Update states array
+        const stateIdx = states.indexOf(stateKey);
+        if (stateIdx > -1) states[stateIdx] = code;
+
+        // 2. Migrate stateNames
+        stateNames[code] = trimmedName;
+        delete stateNames[stateKey];
+
+        // 3. Migrate dataStore
+        if (dataStore[stateKey]) {
+            dataStore[code] = dataStore[stateKey];
+            delete dataStore[stateKey];
+        }
+
+        // 4. Update currentState if needed
+        if (currentState === stateKey) currentState = code;
+
+        // 5. Update user.state for all users in this state
+        const users = getUsers();
+        users.forEach(function(u) {
+            if (u.state === stateKey) u.state = code;
+        });
+        await saveUsers(users);
+
+        saveData();
+        if (isSupabaseReady) {
+            await sb.from('states').upsert({ id: code, name: stateNames[code] }, { onConflict: 'id' });
+        }
+        renderAdminPanel();
+        renderStateSection(currentState);
+        if (currentView === 'india') renderIndiaSection();
+        if (currentView === 'adduser') renderAddUserStates();
+        rebuildStateTabs();
+        showToast('State renamed! Code: ' + code + ', Name: ' + trimmedName, 'success');
+    } else {
+        // Only display name changed
+        stateNames[stateKey] = trimmedName;
+        if (isSupabaseReady) {
+            await sb.from('states').upsert({ id: stateKey, name: stateNames[stateKey] }, { onConflict: 'id' });
+        }
+        renderAdminPanel();
+        renderStateSection(currentState);
+        if (currentView === 'india') renderIndiaSection();
+        if (currentView === 'adduser') renderAddUserStates();
+        rebuildStateTabs();
+        showToast('State renamed to: ' + trimmedName, 'success');
+    }
+}
+
+function deleteState(stateKey) {
+    if (stateKey === 'MP') {
+        showToast('Cannot delete MP state!', 'error');
+        return;
+    }
+    const stateName = stateNames[stateKey];
+    const memberCount = dataStore[stateKey] ? dataStore[stateKey].persons.length : 0;
+    if (!confirm('Delete state "' + stateName + '"?\n\nThis will also delete ' + memberCount + ' team member(s) from this state. This action cannot be undone!')) return;
+
+    // Remove from states array
+    const idx = states.indexOf(stateKey);
+    if (idx > -1) states.splice(idx, 1);
+
+    // Remove from stateNames
+    delete stateNames[stateKey];
+
+    // Remove from dataStore
+    delete dataStore[stateKey];
+    saveData();
+
+    // Rebuild state tabs
+    rebuildStateTabs();
+
+    // If current state was deleted, switch to MP
+    if (currentState === stateKey) {
+        currentState = 'MP';
+        renderStateSection('MP');
+        updateStateTabs();
+    }
+
+    renderAdminPanel();
+    if (currentView === 'adduser') renderAddUserStates();
+    showToast('State "' + stateName + '" deleted!', 'success');
+}
+
+function rebuildStateTabs() {
+    const tabsContainer = document.getElementById('stateTabs');
+    tabsContainer.innerHTML = '';
+    states.forEach((stateKey, index) => {
+        const tab = document.createElement('div');
+        tab.className = 'nav-tab' + (stateKey === currentState ? ' active' : '');
+        tab.dataset.state = stateKey;
+        const flag = stateKey === 'MP' ? '🇮🇳' : '📍';
+        // Use stateNames for label, fallback to stateKey
+        const label = stateKey === 'MP' ? (stateNames['MP'] || 'MP') : (stateNames[stateKey] || stateKey);
+        // Truncate long names for display
+        const displayLabel = label.length > 8 ? label.substring(0, 7) + '..' : label;
+        tab.innerHTML = '<span class="flag">' + flag + '</span> ' + displayLabel;
+        tab.addEventListener('click', () => {
+            if (currentUser.role !== 'admin' && currentUser.role !== 'manager' && tab.dataset.state !== currentUser.state) {
+                showToast('You can only view your assigned state!', 'error');
+                return;
+            }
+            currentState = tab.dataset.state;
+            updateStateTabs();
+            if (currentView === 'state') renderStateSection(currentState);
+        });
+        tabsContainer.appendChild(tab);
+    });
+}
+
+async function addNewState() {
+    const stateCode = prompt('Enter state code (e.g., MH, GJ, RJ):');
+    if (!stateCode || stateCode.trim() === '') {
+        showToast('Add state cancelled!', 'info');
+        return;
+    }
+    const code = stateCode.trim().toUpperCase();
+
+    // Validate: no spaces, no special chars
+    if (!/^[A-Z0-9]+$/.test(code)) {
+        showToast('State code can only contain letters and numbers!', 'error');
+        return;
+    }
+
+    if (states.includes(code)) {
+        showToast('State code "' + code + '" already exists!', 'error');
+        return;
+    }
+
+    const stateFullName = prompt('Enter full state name (e.g., Maharashtra):');
+    if (!stateFullName || stateFullName.trim() === '') {
+        showToast('State name is required!', 'error');
+        return;
+    }
+
+    const name = stateFullName.trim();
+
+    // Add to states array
+    states.push(code);
+    stateNames[code] = name;
+    dataStore[code] = { persons: [] };
+    saveData();
+    if (isSupabaseReady) {
+        await sb.from('states').insert({ id: code, name: name });
+    }
+
+    // Rebuild tabs
+    rebuildStateTabs();
+    renderAdminPanel();
+    showToast('New state added: ' + name, 'success');
+}
+
+// ==================== DATA & RENDERING ====================
+const states = ['MP','State1','State2','State3','State4','State5','State6','State7','State8','State9','State10','State11','State12','State13','State14'];
+const stateNames = {
+    'MP':'Madhya Pradesh','State1':'State 1','State2':'State 2','State3':'State 3','State4':'State 4','State5':'State 5',
+    'State6':'State 6','State7':'State 7','State8':'State 8','State9':'State 9','State10':'State 10','State11':'State 11',
+    'State12':'State 12','State13':'State 13','State14':'State 14'
+};
+
+const mpTeam = []; // Empty - no demo data
+
+let dataStore = {};
+let currentState = 'MP';
+let currentPeriod = 'today';
+let currentView = 'state';
+
+function generateDummyTeam(stateName) {
+    return []; // Empty - no demo data
+}
+
+function initData() {
+    // FORCE: Always start with empty data - NO demo data EVER
+    states.forEach(state => {
+        dataStore[state] = { persons: [] };
+    });
+    // Clear any cached data from localStorage
+    localStorage.removeItem('bizsetu_data_v6');
+    // Sync empty state to Supabase
+    if (isSupabaseReady) {
+        for (var sk in dataStore) {
+            dataStore[sk].persons.forEach(function(p){
+                upsertPersonToSupabase(p, sk).catch(function(e){});
+            });
+        }
+    }
+    saveData();
+}
+function loadData() {
+    // Load dataStore
+    var savedData = localStorage.getItem('bizsetu_data_v6');
+    if (savedData) {
+        try { dataStore = JSON.parse(savedData); } catch(e) {}
+    }
+    // Load stateNames
+    var savedNames = localStorage.getItem('bizsetu_stateNames');
+    if (savedNames) {
+        try {
+            var parsedNames = JSON.parse(savedNames);
+            // Merge with defaults (keep custom names, add missing defaults)
+            states.forEach(function(s) {
+                if (parsedNames[s]) stateNames[s] = parsedNames[s];
+            });
+        } catch(e) {}
+    }
+    // Load states array (in case new states were added)
+    var savedStates = localStorage.getItem('bizsetu_states');
+    if (savedStates) {
+        try {
+            var parsedStates = JSON.parse(savedStates);
+            // Merge: add any states from saved that aren't in current
+            parsedStates.forEach(function(s) {
+                if (states.indexOf(s) === -1) states.push(s);
+            });
+        } catch(e) {}
+    }
+    // Ensure all states exist in dataStore
+    states.forEach(function(s) {
+        if (!dataStore[s]) dataStore[s] = { persons: [] };
+    });
+}
+
+function checkDateRollup() {
+    const lastDate = localStorage.getItem('bizsetu_lastDate');
+    const today = new Date().toDateString();
+    if (lastDate && lastDate !== today) {
+        // Date changed - migrate today's data to month
+        states.forEach(function(state) {
+            var persons = dataStore[state].persons;
+            persons.forEach(function(person) {
+                person.sales += (person.todaySales || 0);
+                person.collection += (person.todayCollection || 0);
+                person.planSales += (person.todayPlanSales || 0);
+                person.planCollection += (person.todayPlanCollection || 0);
+                ['FarmerContact','Gfm','Ofm','NightHalt','DilutionTest','Demos','FieldVisit','FieldDay','DealerAppointment','DealerAppointed'].forEach(function(f) {
+                    person[f] += (person['today'+f] || 0);
+                    person['plan'+f] += (person['todayPlan'+f] || 0);
+                });
+                // Reset today's figures
+                person.todaySales = 0; person.todayCollection = 0;
+                person.todayPlanSales = 0; person.todayPlanCollection = 0;
+                ['FarmerContact','Gfm','Ofm','NightHalt','DilutionTest','Demos','FieldVisit','FieldDay','DealerAppointment','DealerAppointed'].forEach(function(f) {
+                    person['today'+f] = 0; person['todayPlan'+f] = 0;
+                });
+            });
+        });
+        // Save monthly snapshot
+        saveMonthlySnapshot();
+        saveData();
+        showToast('Day changed! Today\'s data added to month.', 'success');
+    }
+    localStorage.setItem('bizsetu_lastDate', today);
+}
+
+function saveMonthlySnapshot() {
+    var monthKey = 'bizsetu_month_' + new Date().toISOString().slice(0,7); // YYYY-MM
+    var snapshot = {};
+    states.forEach(function(s) {
+        snapshot[s] = { persons: JSON.parse(JSON.stringify(dataStore[s].persons)) };
+    });
+    localStorage.setItem(monthKey, JSON.stringify(snapshot));
+    var months = JSON.parse(localStorage.getItem('bizsetu_months') || '[]');
+    if (months.indexOf(monthKey) === -1) { months.push(monthKey); localStorage.setItem('bizsetu_months', JSON.stringify(months)); }
+}
+
+function formatCurrency(amount) {
+    if (amount >= 100000) return '₹'+(amount/100000).toFixed(1)+'L';
+    if (amount >= 1000) return '₹'+(amount/1000).toFixed(1)+'K';
+    return '₹'+amount.toLocaleString('en-IN');
+}
+function formatFullCurrency(amount) { return '₹'+amount.toLocaleString('en-IN'); }
+function getInitials(name) { return name.replace(/^(TM-|SSO-) /, '').split(' ').map(n=>n[0]).join('').substring(0,2).toUpperCase(); }
+
+function showToast(message, type='success') {
+    const container = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = 'toast '+type;
+    toast.innerHTML = '<i class="fas fa-'+(type==='success'?'check-circle':type==='error'?'exclamation-circle':'info-circle')+'"></i> '+message;
+    container.appendChild(toast);
+    setTimeout(()=>toast.remove(), 3000);
+}
+
+function canEdit(personName) {
+    if (!currentUser) return false;
+    if (currentUser.role === 'admin') return true;
+    // User can only edit their own data
+    const userName = currentUser.name.toLowerCase();
+    const pName = personName.toLowerCase().replace(/^(tm-|sso-) /, '');
+    return pName.includes(userName) || userName.includes(pName.split(' ')[0]);
+}
+
+function renderStateSection(state) {
+    const persons = dataStore[state].persons;
+    let totalSales = 0, totalCollection = 0;
+    persons.forEach(p => {
+        totalSales += currentPeriod==='today' ? p.todaySales : p.sales;
+        totalCollection += currentPeriod==='today' ? p.todayCollection : p.collection;
+    });
+    document.getElementById('state-total-sales').textContent = formatFullCurrency(totalSales);
+    document.getElementById('state-total-collection').textContent = formatFullCurrency(totalCollection);
+
+    const container = document.getElementById('persons-container');
+    container.innerHTML = '';
+    // DEBUG: Show persons count
+    if (persons.length === 0) {
+        container.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:14px;">'+t('noTeamMembers')+'<br>Add a Team Person from "Add User" tab.</div>';
+        document.getElementById('state-total-sales').textContent = formatFullCurrency(0);
+        document.getElementById('state-total-collection').textContent = formatFullCurrency(0);
+        return;
+    }
+    // For team role, show self + admin-permitted persons
+    let displayPersons = persons;
+    if (currentUser.role === 'team') {
+        const myPersonId = 'tm-' + currentUser.id;
+        const allowedIds = currentUser.viewPermissions || [];
+        displayPersons = persons.filter(p => {
+            // Always show self
+            if (p.id === myPersonId) return true;
+            // Show persons admin has given permission to view
+            return allowedIds.includes(p.id);
+        });
+    }
+    // State Summary Card (moved OUTSIDE the forEach loop)
+    var stateTotalSales = 0, stateTotalColl = 0, stateTotalPlanS = 0, stateTotalPlanC = 0;
+    persons.forEach(function(p) {
+        stateTotalSales += (currentPeriod==='today'?p.todaySales:p.sales);
+        stateTotalColl += (currentPeriod==='today'?p.todayCollection:p.collection);
+        stateTotalPlanS += (currentPeriod==='today'?p.todayPlanSales:p.planSales);
+        stateTotalPlanC += (currentPeriod==='today'?p.todayPlanCollection:p.planCollection);
+    });
+
+    var stateCard = document.createElement('div');
+    stateCard.className = 'person-card regular';
+    stateCard.style.cssText = 'background:linear-gradient(135deg,rgba(79,70,229,0.06),rgba(124,58,237,0.06));border-left:3px solid var(--primary);margin-bottom:8px;';
+
+    var sap = currentPeriod==='today'?'todayPlan':'plan'; var saa = currentPeriod==='today'?'today':'';
+    function sa(field) { var t=0; persons.forEach(function(p){t+=(p[saa+field]||0);});return t; }
+    function sp(field) { var t=0; persons.forEach(function(p){t+=(p[sap+field]||0);});return t; }
+    function spctClass(plan,actual) { if(!plan||plan<=0)return''; var pct=(actual/plan)*100;if(pct>=80)return'good';if(pct>=50)return'avg';return'low'; }
+    function spctStr(plan,actual) { if(!plan||plan<=0)return'-';return Math.round((actual/plan)*100)+'%'; }
+
+    stateCard.innerHTML = '<div class="card-inner" id="stateCardInner_' + state + '">'+
+        '<div class="card-front">'+
+            '<div class="person-info" style="flex:1;">'+
+                '<div class="person-name" style="color:var(--primary);"><i class="fas fa-map-marker-alt" style="margin-right:6px;"></i>' + stateNames[state] + ' Summary</div>'+
+                '<div class="person-role">Team: ' + persons.length + ' members</div>'+
+            '</div>'+
+            '<div class="card-metrics" style="gap:14px;">'+
+                '<div class="metric-item"><div class="metric-label" style="font-size:7px;">Plan S</div><div class="metric-value" style="color:var(--text-muted);font-size:11px;">'+formatCurrency(stateTotalPlanS)+'</div><div class="metric-label" style="font-size:7px;margin-top:2px;">Act S</div><div class="metric-value sales" style="font-size:11px;">'+formatCurrency(stateTotalSales)+'</div></div>'+
+                '<div class="metric-item"><div class="metric-label" style="font-size:7px;">Plan C</div><div class="metric-value" style="color:var(--text-muted);font-size:11px;">'+formatCurrency(stateTotalPlanC)+'</div><div class="metric-label" style="font-size:7px;margin-top:2px;">Act C</div><div class="metric-value collection" style="font-size:11px;">'+formatCurrency(stateTotalColl)+'</div></div>'+
+            '</div>'+
+            '<button class="flip-btn" onclick="flipCard(event,\'state_' + state + '\')" title="Activities"><i class="fas fa-th"></i></button>'+
+        '</div>'+
+        '<div class="card-back">'+
+            '<div class="act-header">'+
+                '<span style="color:var(--primary);"><i class="fas fa-map-marker-alt" style="margin-right:6px;"></i>' + stateNames[state] + ' Activities</span>'+
+                '<button class="flip-btn back" onclick="flipCard(event,\'state_' + state + '\')" title="Back"><i class="fas fa-chart-bar"></i></button>'+
+            '</div>'+
+            '<div class="act-grid">'+
+                '<div class="act-row header"><span class="act-name">Activity</span><span class="act-val plan">Plan</span><span class="act-val act">Actual</span><span class="act-pct">%</span></div>'+
+                '<div class="act-row highlight"><span class="act-name"><i class="fas fa-rupee-sign" style="font-size:8px;color:var(--success);margin-right:3px;"></i>Sales</span><span class="act-val plan">'+formatCurrency(stateTotalPlanS)+'</span><span class="act-val act" style="color:var(--success);">'+formatCurrency(stateTotalSales)+'</span><span class="act-pct '+spctClass(stateTotalPlanS,stateTotalSales)+'">'+spctStr(stateTotalPlanS,stateTotalSales)+'</span></div>'+
+                '<div class="act-row highlight"><span class="act-name"><i class="fas fa-rupee-sign" style="font-size:8px;color:var(--info);margin-right:3px;"></i>Collection</span><span class="act-val plan">'+formatCurrency(stateTotalPlanC)+'</span><span class="act-val act" style="color:var(--info);">'+formatCurrency(stateTotalColl)+'</span><span class="act-pct '+spctClass(stateTotalPlanC,stateTotalColl)+'">'+spctStr(stateTotalPlanC,stateTotalColl)+'</span></div>'+
+                '<div class="act-row"><span class="act-name">Farmer Contact</span><span class="act-val plan">'+sp('FarmerContact')+'</span><span class="act-val act">'+sa('FarmerContact')+'</span><span class="act-pct '+spctClass(sp('FarmerContact'),sa('FarmerContact'))+'">'+spctStr(sp('FarmerContact'),sa('FarmerContact'))+'</span></div>'+
+                '<div class="act-row"><span class="act-name">GFM</span><span class="act-val plan">'+sp('Gfm')+'</span><span class="act-val act">'+sa('Gfm')+'</span><span class="act-pct '+spctClass(sp('Gfm'),sa('Gfm'))+'">'+spctStr(sp('Gfm'),sa('Gfm'))+'</span></div>'+
+                '<div class="act-row"><span class="act-name">OFM</span><span class="act-val plan">'+sp('Ofm')+'</span><span class="act-val act">'+sa('Ofm')+'</span><span class="act-pct '+spctClass(sp('Ofm'),sa('Ofm'))+'">'+spctStr(sp('Ofm'),sa('Ofm'))+'</span></div>'+
+                '<div class="act-row"><span class="act-name">Night Halt</span><span class="act-val plan">'+sp('NightHalt')+'</span><span class="act-val act">'+sa('NightHalt')+'</span><span class="act-pct '+spctClass(sp('NightHalt'),sa('NightHalt'))+'">'+spctStr(sp('NightHalt'),sa('NightHalt'))+'</span></div>'+
+                '<div class="act-row"><span class="act-name">Dilution Test</span><span class="act-val plan">'+sp('DilutionTest')+'</span><span class="act-val act">'+sa('DilutionTest')+'</span><span class="act-pct '+spctClass(sp('DilutionTest'),sa('DilutionTest'))+'">'+spctStr(sp('DilutionTest'),sa('DilutionTest'))+'</span></div>'+
+                '<div class="act-row"><span class="act-name">Demos</span><span class="act-val plan">'+sp('Demos')+'</span><span class="act-val act">'+sa('Demos')+'</span><span class="act-pct '+spctClass(sp('Demos'),sa('Demos'))+'">'+spctStr(sp('Demos'),sa('Demos'))+'</span></div>'+
+                '<div class="act-row"><span class="act-name">Field Visit</span><span class="act-val plan">'+sp('FieldVisit')+'</span><span class="act-val act">'+sa('FieldVisit')+'</span><span class="act-pct '+spctClass(sp('FieldVisit'),sa('FieldVisit'))+'">'+spctStr(sp('FieldVisit'),sa('FieldVisit'))+'</span></div>'+
+                '<div class="act-row"><span class="act-name">Field Day</span><span class="act-val plan">'+sp('FieldDay')+'</span><span class="act-val act">'+sa('FieldDay')+'</span><span class="act-pct '+spctClass(sp('FieldDay'),sa('FieldDay'))+'">'+spctStr(sp('FieldDay'),sa('FieldDay'))+'</span></div>'+
+                '<div class="act-row"><span class="act-name">Dealer Appt.</span><span class="act-val plan">'+sp('DealerAppointment')+'</span><span class="act-val act">'+sa('DealerAppointment')+'</span><span class="act-pct '+spctClass(sp('DealerAppointment'),sa('DealerAppointment'))+'">'+spctStr(sp('DealerAppointment'),sa('DealerAppointment'))+'</span></div>'+
+                '<div class="act-row"><span class="act-name">Dealer Appointed</span><span class="act-val plan">'+sp('DealerAppointed')+'</span><span class="act-val act">'+sa('DealerAppointed')+'</span><span class="act-pct '+spctClass(sp('DealerAppointed'),sa('DealerAppointed'))+'">'+spctStr(sp('DealerAppointed'),sa('DealerAppointed'))+'</span></div>'+
+            '</div>'+
+            '<div style="display:flex;gap:8px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">'+
+                '<button class="btn-primary" style="flex:1;font-size:11px;padding:8px;" onclick="exportStateToPDF(\''+state+'\')"><i class="fas fa-file-pdf"></i> PDF</button>'+
+                '<button class="btn-primary" style="flex:1;font-size:11px;padding:8px;background:linear-gradient(135deg,#059669,#10b981);" onclick="exportStateToExcel(\''+state+'\')"><i class="fas fa-file-excel"></i> Excel</button>'+
+            '</div>'+
+        '</div>'+
+    '</div>';
+    container.appendChild(stateCard);
+
+    displayPersons.forEach((person, index) => {
+        const sales = currentPeriod==='today' ? person.todaySales : person.sales;
+        const collection = currentPeriod==='today' ? person.todayCollection : person.collection;
+        const rank = index + 1;
+        let rankClass = 'normal', cardClass = 'regular';
+        if (rank === 1) { rankClass='gold'; cardClass='top-1'; }
+        else if (rank === 2) { rankClass='silver'; cardClass='top-2'; }
+        else if (rank === 3) { rankClass='bronze'; cardClass='top-3'; }
+        const isSSO = person.role === 'SSO';
+        const editable = canEdit(person.name);
+
+        const card = document.createElement('div');
+        card.className = 'card person-card '+cardClass+(isSSO?' sso-card':'')+' animate-in delay-'+(Math.min(index%4+1,4));
+
+        let actionsHtml = '';
+        if (editable || currentUser.role === 'admin') {
+            actionsHtml = 
+                '<div class="card-actions">'+
+                    '<button class="btn-icon edit" onclick="openEditModal(\''+person.id+'\',\''+state+'\')"><i class="fas fa-edit"></i></button>'+
+                    (currentUser.role === 'admin' ? '<button class="btn-icon delete" onclick="zeroOutPerson(\''+person.id+'\',\''+state+'\')"><i class="fas fa-trash"></i></button>' : '')+
+                '</div>';
+        }
+
+        const planSales = currentPeriod==='today' ? (person.todayPlanSales || 0) : (person.planSales || 0);
+        const planCollection = currentPeriod==='today' ? (person.todayPlanCollection || 0) : (person.planCollection || 0);
+
+        // Activities data
+        const actPrefix = currentPeriod === 'today' ? 'today' : '';
+        const planPrefix = currentPeriod === 'today' ? 'todayPlan' : 'plan';
+        function a(field) { return (person[actPrefix + field] || 0); }
+        function p(field) { return (person[planPrefix + field] || 0); }
+        function pctStr(plan, actual) {
+            if (!plan || plan <= 0) return '-';
+            return Math.round((actual / plan) * 100) + '%';
+        }
+        function pctClass(plan, actual) {
+            if (!plan || plan <= 0) return '';
+            var pct = (actual / plan) * 100;
+            if (pct >= 80) return 'good';
+            if (pct >= 50) return 'avg';
+            return 'low';
+        }
+
+        card.innerHTML =
+            '<div class="card-inner" id="cardInner_' + person.id + '">'+
+                // FRONT: Sales & Collection
+                '<div class="card-front">'+
+                    '<div style="display:flex;flex-direction:column;align-items:center;gap:2px;">'+
+                        '<div class="rank-badge '+rankClass+'">'+rank+'</div>'+
+                        (getBadges(person).length > 0 ? '<div style="display:flex;gap:2px;">'+getBadges(person).slice(0,2).map(function(b){return '<span style="font-size:8px;color:'+b.color+';" title="'+b.name+'"><i class="fas fa-'+b.icon+'"></i></span>';}).join('')+'</div>' : '')+
+                    '</div>'+
+                    '<div class="person-info">'+
+                        '<div class="person-name">'+person.name+'</div>'+
+                        '<div style="display:flex;align-items:center;gap:6px;margin-top:2px;">'+
+                            '<button class="attendance-btn '+(person.attendance||'')+'" onclick="markAttendance(event,\''+person.id+'\',\''+state+'\')" title="Attendance: '+(person.attendance||'Not marked')+'">'+
+                                '<i class="fas fa-'+(person.attendance==='present'?'check-circle':person.attendance==='absent'?'times-circle':person.attendance==='leave'?'calendar-minus':'question-circle')+'"></i> '+
+                                (person.attendance==='present'?'P':person.attendance==='absent'?'A':person.attendance==='leave'?'L':'-')+
+                            '</button>'+
+                        '</div>'+
+                        '<div class="person-role">'+person.district+' - '+stateNames[state]+'</div>'+
+                    '</div>'+
+                    '<div class="card-metrics" style="gap:14px;">'+
+                        '<div class="metric-item"><div class="metric-label" style="font-size:7px;">Plan S</div><div class="metric-value" style="color:var(--text-muted);font-size:11px;">'+formatCurrency(planSales)+'</div><div class="metric-label" style="font-size:7px;margin-top:2px;">Act S</div><div class="metric-value sales" style="font-size:11px;">'+formatCurrency(sales)+'</div></div>'+
+                        '<div class="metric-item"><div class="metric-label" style="font-size:7px;">Plan C</div><div class="metric-value" style="color:var(--text-muted);font-size:11px;">'+formatCurrency(planCollection)+'</div><div class="metric-label" style="font-size:7px;margin-top:2px;">Act C</div><div class="metric-value collection" style="font-size:11px;">'+formatCurrency(collection)+'</div></div>'+
+                    '</div>'+
+                    '<button class="flip-btn" onclick="flipCard(event,\''+person.id+'\')" title="Activities"><i class="fas fa-th"></i></button>'+
+                    actionsHtml+
+                    (person.lastUpdated ? '<div class="last-updated-strip"><i class="fas fa-clock" style="margin-right:3px;"></i>' + timeAgo(person.lastUpdated) + '</div>' : '')+
+                '</div>'+
+                // BACK: Activities
+                '<div class="card-back">'+
+                    '<div class="act-header">'+
+                        '<div class="rank-badge '+rankClass+'">'+rank+'</div>'+
+                        '<span>'+person.name+'</span>'+
+                        '<span style="margin-left:auto;font-size:10px;color:var(--text-light);font-weight:400;">Activities</span>'+
+                        '<button class="flip-btn back" onclick="flipCard(event,\''+person.id+'\')" title="Back to Sales"><i class="fas fa-chart-bar"></i></button>'+
+                    '</div>'+
+                    '<div class="act-grid">'+
+                        '<div class="act-row header"><span class="act-name">Activity</span><span class="act-val plan">Plan</span><span class="act-val act">Actual</span><span class="act-pct">%</span></div>'+
+                        '<div class="act-row highlight"><span class="act-name"><i class="fas fa-rupee-sign" style="font-size:8px;color:var(--success);margin-right:3px;"></i>Sales</span><span class="act-val plan">'+formatCurrency(planSales)+'</span><span class="act-val act" style="color:var(--success);">'+formatCurrency(sales)+'</span><span class="act-pct '+pctClass(planSales,sales)+'">'+pctStr(planSales,sales)+'</span></div>'+
+                        '<div class="act-row highlight"><span class="act-name"><i class="fas fa-rupee-sign" style="font-size:8px;color:var(--info);margin-right:3px;"></i>Collection</span><span class="act-val plan">'+formatCurrency(planCollection)+'</span><span class="act-val act" style="color:var(--info);">'+formatCurrency(collection)+'</span><span class="act-pct '+pctClass(planCollection,collection)+'">'+pctStr(planCollection,collection)+'</span></div>'+
+                        '<div class="act-row"><span class="act-name">Farmer Contact</span><span class="act-val plan">'+p('FarmerContact')+'</span><span class="act-val act">'+a('FarmerContact')+'</span><span class="act-pct '+pctClass(p('FarmerContact'),a('FarmerContact'))+'">'+pctStr(p('FarmerContact'),a('FarmerContact'))+'</span></div>'+
+                        '<div class="act-row"><span class="act-name">GFM</span><span class="act-val plan">'+p('Gfm')+'</span><span class="act-val act">'+a('Gfm')+'</span><span class="act-pct '+pctClass(p('Gfm'),a('Gfm'))+'">'+pctStr(p('Gfm'),a('Gfm'))+'</span></div>'+
+                        '<div class="act-row"><span class="act-name">OFM</span><span class="act-val plan">'+p('Ofm')+'</span><span class="act-val act">'+a('Ofm')+'</span><span class="act-pct '+pctClass(p('Ofm'),a('Ofm'))+'">'+pctStr(p('Ofm'),a('Ofm'))+'</span></div>'+
+                        '<div class="act-row"><span class="act-name">Night Halt</span><span class="act-val plan">'+p('NightHalt')+'</span><span class="act-val act">'+a('NightHalt')+'</span><span class="act-pct '+pctClass(p('NightHalt'),a('NightHalt'))+'">'+pctStr(p('NightHalt'),a('NightHalt'))+'</span></div>'+
+                        '<div class="act-row"><span class="act-name">Dilution Test</span><span class="act-val plan">'+p('DilutionTest')+'</span><span class="act-val act">'+a('DilutionTest')+'</span><span class="act-pct '+pctClass(p('DilutionTest'),a('DilutionTest'))+'">'+pctStr(p('DilutionTest'),a('DilutionTest'))+'</span></div>'+
+                        '<div class="act-row"><span class="act-name">Demos</span><span class="act-val plan">'+p('Demos')+'</span><span class="act-val act">'+a('Demos')+'</span><span class="act-pct '+pctClass(p('Demos'),a('Demos'))+'">'+pctStr(p('Demos'),a('Demos'))+'</span></div>'+
+                        '<div class="act-row"><span class="act-name">Field Visit</span><span class="act-val plan">'+p('FieldVisit')+'</span><span class="act-val act">'+a('FieldVisit')+'</span><span class="act-pct '+pctClass(p('FieldVisit'),a('FieldVisit'))+'">'+pctStr(p('FieldVisit'),a('FieldVisit'))+'</span></div>'+
+                        '<div class="act-row"><span class="act-name">Field Day</span><span class="act-val plan">'+p('FieldDay')+'</span><span class="act-val act">'+a('FieldDay')+'</span><span class="act-pct '+pctClass(p('FieldDay'),a('FieldDay'))+'">'+pctStr(p('FieldDay'),a('FieldDay'))+'</span></div>'+
+                        '<div class="act-row"><span class="act-name">Dealer Appt.</span><span class="act-val plan">'+p('DealerAppointment')+'</span><span class="act-val act">'+a('DealerAppointment')+'</span><span class="act-pct '+pctClass(p('DealerAppointment'),a('DealerAppointment'))+'">'+pctStr(p('DealerAppointment'),a('DealerAppointment'))+'</span></div>'+
+                        '<div class="act-row"><span class="act-name">Dealer Appointed</span><span class="act-val plan">'+p('DealerAppointed')+'</span><span class="act-val act">'+a('DealerAppointed')+'</span><span class="act-pct '+pctClass(p('DealerAppointed'),a('DealerAppointed'))+'">'+pctStr(p('DealerAppointed'),a('DealerAppointed'))+'</span></div>'+
+                    '</div>'+
+                    '<div style="display:flex;gap:8px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">'+                        '<button class="btn-primary" style="flex:1;font-size:11px;padding:8px;" onclick="exportToPDF(\''+person.id+'\',\''+state+'\')"><i class="fas fa-file-pdf"></i> PDF</button>'+
+                        '<button class="btn-primary" style="flex:1;font-size:11px;padding:8px;background:linear-gradient(135deg,#059669,#10b981);" onclick="exportToExcel(\''+person.id+'\',\''+state+'\')"><i class="fas fa-file-excel"></i> Excel</button>'+
+                        '<button class="btn-primary" style="flex:1;font-size:11px;padding:8px;background:linear-gradient(135deg,#25d366,#128c7e);" onclick="shareWhatsApp(\''+person.id+'\',\''+state+'\')"><i class="fab fa-whatsapp"></i> WA</button>'+
+                    '</div>'+
+                '</div>';
+        container.appendChild(card);
+    });
+}
+
+function renderIndiaSection() {
+    let indiaSales = 0, indiaCollection = 0;
+    const grid = document.getElementById('india-states-grid');
+    grid.innerHTML = '';
+    states.forEach((state, index) => {
+        const persons = dataStore[state].persons;
+        let stateSales = 0, stateCollection = 0;
+        persons.forEach(p => {
+            stateSales += currentPeriod==='today' ? p.todaySales : p.sales;
+            stateCollection += currentPeriod==='today' ? p.todayCollection : p.collection;
+        });
+        indiaSales += stateSales; indiaCollection += stateCollection;
+        const card = document.createElement('div');
+        card.className = 'card state-card '+(state===currentState?'active-state':'')+' animate-in';
+        card.style.animationDelay = (index*0.03)+'s';
+        card.onclick = () => { currentState = state; switchView('state'); updateStateTabs(); };
+        card.innerHTML = '<div class="state-name">'+stateNames[state]+'</div><div class="state-totals"><div class="state-metric"><div class="state-metric-value" style="color:var(--success)">'+formatCurrency(stateSales)+'</div><div class="state-metric-label">Sales</div></div><div class="state-metric"><div class="state-metric-value" style="color:var(--info)">'+formatCurrency(stateCollection)+'</div><div class="state-metric-label">Coll.</div></div></div>';
+        grid.appendChild(card);
+    });
+    document.getElementById('india-total-sales').textContent = formatFullCurrency(indiaSales);
+    document.getElementById('india-total-collection').textContent = formatFullCurrency(indiaCollection);
+}
+
+function switchView(view) {
+    currentView = view;
+    // Admin panel only shows in state view
+    if (currentUser && currentUser.role === 'admin') {
+        document.getElementById('adminPanel').style.display = (view === 'state') ? 'block' : 'none';
+    }
+    document.querySelectorAll('.bottom-nav .nav-item').forEach(item => { item.classList.toggle('active', item.dataset.view === view); });
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    if (view === 'state') {
+        document.getElementById('section-state').classList.add('active');
+        renderStateSection(currentState);
+    } else if (view === 'india') {
+        if (currentUser.role !== 'admin' && currentUser.role !== 'manager') {
+            showToast('Admin & India Viewer only!', 'error');
+            return;
+        }
+        document.getElementById('section-india').classList.add('active');
+        renderIndiaSection();
+    } else if (view === 'analytics') {
+        document.getElementById('section-state').classList.add('active');
+        document.getElementById('persons-container').innerHTML = '<div class="empty-state"><i class="fas fa-chart-pie"></i><div style="font-size:16px;font-weight:700;margin-bottom:6px;color:var(--text)">Analytics Coming Soon</div><div style="font-size:12px;color:var(--text-light)">Detailed charts and reports will be available here.</div></div>';
+    } else if (view === 'adduser') {
+        if (currentUser.role !== 'admin') {
+            showToast('Admin only!', 'error');
+            return;
+        }
+        document.getElementById('section-state').classList.add('active');
+        var stateOptions = '';
+        states.forEach(function(s) { stateOptions += '<option value="'+s+'"'+(s===currentState?' selected':'')+'>'+(stateNames[s]||s)+'</option>'; });
+        
+        let addUserHtml = '<div style="padding:16px;">';
+        addUserHtml += '<div class="card" style="padding:16px;margin-bottom:12px;"><div style="font-size:16px;font-weight:700;margin-bottom:12px;color:var(--text)"><i class="fas fa-user-plus" style="color:var(--primary);margin-right:6px;"></i>Add New User</div><form class="add-user-form" onsubmit="handleAddUser(event)"><input type="text" class="add-user-input" id="newUserName" placeholder="Full Name" required><input type="text" class="add-user-input" id="newUserId" placeholder="User ID" required><input type="password" class="add-user-input" id="newUserPassword" placeholder="Password" required><select class="add-user-select" id="newUserRole"><option value="team" selected>Team Person</option><option value="user">State Viewer</option><option value="manager">India Viewer</option><option value="admin">Admin</option></select><select class="add-user-select" id="newUserState"><option value="MP">Madhya Pradesh</option><option value="State1">State 1</option><option value="State2">State 2</option><option value="State3">State 3</option><option value="State4">State 4</option><option value="State5">State 5</option><option value="State6">State 6</option><option value="State7">State 7</option><option value="State8">State 8</option><option value="State9">State 9</option><option value="State10">State 10</option><option value="State11">State 11</option><option value="State12">State 12</option><option value="State13">State 13</option><option value="State14">State 14</option></select><input type="text" class="add-user-input" id="newUserDistrict" placeholder="District"><select class="add-user-select" id="newUserManager"><option value="">No Manager</option></select><button type="submit" class="add-user-btn"><i class="fas fa-plus"></i> Create User</button></form></div>';
+        addUserHtml += '<div class="card" style="padding:16px;"><div style="font-size:16px;font-weight:700;margin-bottom:12px;color:var(--text);display:flex;align-items:center;gap:8px;"><i class="fas fa-map-marked-alt" style="color:var(--primary);"></i> Manage States <button class="user-item-btn" onclick="addNewState()" style="margin-left:auto;background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:#fff;border:none;"><i class="fas fa-plus"></i> Add State</button></div><div class="user-list" id="addUserStateList"></div></div>';
+        addUserHtml += '<div class="card" style="padding:16px;margin-top:12px;"><div style="font-size:16px;font-weight:700;margin-bottom:12px;color:var(--text)"><i class="fas fa-file-upload" style="color:var(--primary);margin-right:6px;"></i>'+t('bulkUpload')+'</div><div style="font-size:11px;color:var(--text-light);margin-bottom:8px;">Upload Excel with columns: Name, UserID, Password, Role, State, District</div><input type="file" id="bulkFile" accept=".xlsx,.xls,.csv" style="margin-bottom:8px;font-size:12px;" onchange="handleBulkUpload(this)"><div id="bulkResult" style="font-size:12px;margin-top:8px;"></div></div>';
+        // --- BULK TEAM UPLOAD WITH ACTIVITIES ---
+        addUserHtml += '<div class="card" style="padding:16px;margin-top:12px;border:2px solid rgba(79,70,229,0.15);"><div style="font-size:16px;font-weight:700;margin-bottom:12px;color:var(--text);display:flex;align-items:center;gap:8px;"><i class="fas fa-users" style="color:var(--primary);"></i> Bulk Add Team Members <span style="font-size:10px;background:rgba(79,70,229,0.1);color:var(--primary);padding:2px 8px;border-radius:10px;">With Activities</span></div>';
+        addUserHtml += '<div style="font-size:11px;color:var(--text-light);margin-bottom:4px;">Select State:</div><select class="add-user-select" id="bulkTeamState" style="margin-bottom:10px;">'+stateOptions+'</select>';
+        addUserHtml += '<div style="font-size:11px;color:var(--text-light);margin-bottom:8px;line-height:1.6;">Upload Excel with columns:<br><strong style="color:var(--text);">A:Name, B:District, C:Sales, D:Collection, E:TodaySales, F:TodayCollection, G:PlanSales, H:PlanCollection</strong><br><strong style="color:var(--text);">I:FarmerAct, J:FarmerPlan, K:GFMAct, L:GFMPlan, M:OFMAct, N:OFMPlan, O:NightAct, P:NightPlan</strong><br><strong style="color:var(--text);">Q:DilutionAct, R:DilutionPlan, S:DemosAct, T:DemosPlan, U:FieldVisitAct, V:FieldVisitPlan</strong><br><strong style="color:var(--text);">W:FieldDayAct, X:FieldDayPlan, Y:DealerApptAct, Z:DealerApptPlan, AA:DealerAppAct, AB:DealerAppPlan</strong><br><span style="font-size:10px;">Only "Name" (Col A) is required. All activity columns have <strong>Act</strong> (Actual) + <strong>Plan</strong> pairs. Empty = 0.</span></div>';
+        addUserHtml += '<input type="file" id="bulkTeamFile" accept=".xlsx,.xls,.csv" style="margin-bottom:8px;font-size:12px;" onchange="handleBulkTeamUpload(this)">';
+        addUserHtml += '<div id="bulkTeamResult" style="font-size:12px;margin-top:8px;"></div></div>';
+        addUserHtml += '</div>';
+        document.getElementById('persons-container').innerHTML = addUserHtml;
+        // Render states list
+        renderAddUserStates();
+        populateManagerDropdown();
+    } else if (view === 'settings') {
+        document.getElementById('section-state').classList.add('active');
+        let settingsHtml = '<div style="padding:16px;">';
+        settingsHtml += '<div class="card" style="padding:16px;margin-bottom:12px;"><div style="font-size:16px;font-weight:700;margin-bottom:12px;color:var(--text)"><i class="fas fa-key" style="color:var(--primary);margin-right:6px;"></i>Change Password</div><form onsubmit="handleChangePassword(event)"><div style="display:flex;flex-direction:column;gap:10px;"><input type="password" class="form-input" id="changeCurrentPw" placeholder="Current Password" required><input type="password" class="form-input" id="changeNewPw" placeholder="New Password (min 4 chars)" required><input type="password" class="form-input" id="changeConfirmPw" placeholder="Confirm New Password" required><button type="submit" class="btn-primary"><i class="fas fa-save"></i> Update Password</button></div></form></div>';
+        if (currentUser.role === 'admin') {
+            settingsHtml += '<div class="card" style="padding:16px;margin-bottom:12px;"><div style="font-size:16px;font-weight:700;margin-bottom:12px;color:var(--text)"><i class="fas fa-shield-alt" style="color:var(--primary);margin-right:6px;"></i>Security Question Setup</div><form onsubmit="handleSecuritySetup(event)"><div style="display:flex;flex-direction:column;gap:10px;"><input type="text" class="form-input" id="setupSecurityQ" placeholder="Security Question (e.g. What is your company name?)" required style="margin-bottom:0;"><input type="text" class="form-input" id="setupSecurityA" placeholder="Security Answer (e.g. hsr)" required style="margin-bottom:0;"><button type="submit" class="btn-primary" style="margin-top:0;"><i class="fas fa-save"></i> Save Security Question</button></div></form></div>';
+            settingsHtml += '<div class="card" style="padding:16px;margin-bottom:12px;"><div style="font-size:16px;font-weight:700;margin-bottom:12px;color:var(--text)"><i class="fas fa-trash-alt" style="color:var(--danger);margin-right:6px;"></i>Clear Cache</div><p style="font-size:13px;color:var(--text-light);margin-bottom:12px;">Clear local cache to remove old demo data from this device.</p><button class="btn-danger" onclick="clearLocalCache()" style="margin-top:0;background:linear-gradient(135deg,#ef4444,#dc2626);"><i class="fas fa-broom"></i> Clear Local Cache</button></div>';
+        }
+        settingsHtml += '<div class="card" style="padding:16px;margin-bottom:12px;"><div style="font-size:16px;font-weight:700;margin-bottom:12px;color:var(--text)"><i class="fas fa-moon" style="color:var(--primary);margin-right:6px;"></i>Appearance</div><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;"><span style="font-size:14px;">Dark Mode</span><label class="toggle-switch" style="position:relative;display:inline-block;width:44px;height:24px;cursor:pointer;"><input type="checkbox" id="darkModeToggle" onchange="toggleDarkMode()" style="opacity:0;width:0;height:0;"><span style="position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:var(--border);border-radius:24px;transition:0.3s;"></span><span style="position:absolute;content:\'\';height:18px;width:18px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:0.3s;" id="darkModeKnob"></span></label></div><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);"><span style="font-size:14px;">Hindi / हिंदी</span><label class="toggle-switch" style="position:relative;display:inline-block;width:44px;height:24px;cursor:pointer;"><input type="checkbox" id="hindiToggle" onchange="toggleHindi()" style="opacity:0;width:0;height:0;"><span style="position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:var(--border);border-radius:24px;transition:0.3s;"></span><span style="position:absolute;content:\'\';height:18px;width:18px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:0.3s;" id="hindiKnob"></span></label></div></div>';
+        settingsHtml += '<div class="card" style="padding:16px;margin-bottom:12px;"><div style="font-size:16px;font-weight:700;margin-bottom:12px;color:var(--text)"><i class="fas fa-history" style="color:var(--primary);margin-right:6px;"></i>Monthly History</div><div id="historyList" style="max-height:200px;overflow-y:auto;"></div></div>';
+        // Populate history list after rendering
+        setTimeout(function(){
+            var hList = document.getElementById('historyList');
+            if(hList){
+                var months = JSON.parse(localStorage.getItem('bizsetu_months') || '[]');
+                if(months.length === 0){ hList.innerHTML = '<p style="font-size:13px;color:var(--text-light);">No monthly snapshots saved yet.</p>'; }
+                else {
+                    months.sort().reverse();
+                    hList.innerHTML = months.map(function(m){
+                        var monthLabel = m.replace('bizsetu_month_','');
+                        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px;border-bottom:1px solid var(--border);"><span style="font-size:13px;font-weight:600;">'+monthLabel+'</span><button class="btn-primary" style="width:auto;padding:6px 12px;font-size:11px;" onclick="downloadMonthSnapshot(\''+m+'\')"><i class="fas fa-download"></i> Excel</button></div>';
+                    }).join('');
+                }
+            }
+        },0);
+        settingsHtml += '<div class="card" style="padding:16px;margin-bottom:12px;"><div style="font-size:16px;font-weight:700;margin-bottom:12px;color:var(--text)"><i class="fas fa-cog" style="color:var(--primary);margin-right:6px;"></i>Settings</div><button class="btn-danger" onclick="openSmartReset()" style="margin-top:0;background:linear-gradient(135deg,#ef4444,#dc2626);"><i class="fas fa-redo"></i> Reset Data</button><button id="installBtn" class="btn-primary" onclick="installApp()" style="margin-top:8px;display:none;background:linear-gradient(135deg,#059669,#10b981);width:100%;"><i class="fas fa-download"></i> Install App on Phone</button></div><div class="card" style="padding:16px;"><div style="font-size:12px;color:var(--text-light);line-height:1.5;"><div style="font-weight:700;color:var(--text);margin-bottom:6px;">About HSR Leader board Leaderboard</div><p>v1.0 - Live Sales & Collection & Activities Tracker</p><p>Features: Admin/User roles, State restrictions, Live data tracking</p><p style="margin-top:8px;">Logged in as: <strong>'+currentUser.name+'</strong> ('+currentUser.role+')</p></div></div></div>';
+        document.getElementById('persons-container').innerHTML = settingsHtml;
+    }
+}
+
+function updateStateTabs() {
+    document.querySelectorAll('#stateTabs .nav-tab').forEach(tab => { tab.classList.toggle('active', tab.dataset.state === currentState); });
+}
+
+function openEditModal(personId, state) {
+    const person = dataStore[state].persons.find(p => p.id === personId);
+    if (!person) return;
+    if (!canEdit(person.name)) {
+        showToast('You can only edit your own data!', 'error');
+        return;
+    }
+    document.getElementById('editPersonId').value = personId;
+    document.getElementById('editState').value = state;
+    document.getElementById('editName').value = person.name;
+    document.getElementById('editPlanSales').value = currentPeriod==='today' ? (person.todayPlanSales || 0) : (person.planSales || 0);
+    document.getElementById('editPlanCollection').value = currentPeriod==='today' ? (person.todayPlanCollection || 0) : (person.planCollection || 0);
+    document.getElementById('editSales').value = currentPeriod==='today' ? person.todaySales : person.sales;
+    document.getElementById('editCollection').value = currentPeriod==='today' ? person.todayCollection : person.collection;
+    // Load products
+    var prods = ['Urea','Dap','Seeds','Pesti','Fert'];
+    prods.forEach(function(prod){
+        var qtyEl = document.getElementById('edit'+prod+'Qty');
+        var amtEl = document.getElementById('edit'+prod+'Amt');
+        if(qtyEl) qtyEl.value = person[prod.toLowerCase()+'Qty'] || 0;
+        if(amtEl) amtEl.value = person[prod.toLowerCase()+'Amt'] || 0;
+    });
+    // Load activities
+    const ap = currentPeriod === 'today' ? 'todayPlan' : 'plan';
+    const aa = currentPeriod === 'today' ? 'today' : '';
+    const acts = ['FarmerContact','Gfm','Ofm','NightHalt','DilutionTest','Demos','FieldVisit','FieldDay','DealerAppointment','DealerAppointed'];
+    acts.forEach(function(a){
+        var planEl = document.getElementById('editPlan'+a);
+        var actEl = document.getElementById('editAct'+a);
+        if(planEl) planEl.value = person[ap+a] || 0;
+        if(actEl) actEl.value = person[aa+a] || 0;
+    });
+    document.getElementById('deleteBtn').style.display = currentUser.role === 'admin' ? 'block' : 'none';
+    document.getElementById('editModal').classList.add('show');
+}
+function closeModal(modalId) { document.getElementById(modalId).classList.remove('show'); }
+
+function flipCard(e, cardId) {
+    e.stopPropagation();
+    var inner = document.getElementById('cardInner_' + cardId);
+    if (!inner) inner = document.getElementById('stateCardInner_' + cardId.replace('state_', ''));
+    if (inner) inner.classList.toggle('flipped');
+}
+
+function timeAgo(ts) {
+    var now = Date.now();
+    var diff = now - ts;
+    var sec = Math.floor(diff / 1000);
+    if (sec < 60) return sec + 's ago';
+    var min = Math.floor(sec / 60);
+    if (min < 60) return min + 'm ago';
+    var hr = Math.floor(min / 60);
+    if (hr < 24) return hr + 'h ago';
+    var day = Math.floor(hr / 24);
+    if (day < 7) return day + 'd ago';
+    return new Date(ts).toLocaleDateString('en-IN', {day:'numeric', month:'short'});
+}
+
+async function handleEditSubmit(e) {
+    e.preventDefault();
+    const personId = document.getElementById('editPersonId').value;
+    const state = document.getElementById('editState').value;
+    const planSales = parseInt(document.getElementById('editPlanSales').value) || 0;
+    const planCollection = parseInt(document.getElementById('editPlanCollection').value) || 0;
+    const sales = parseInt(document.getElementById('editSales').value) || 0;
+    const collection = parseInt(document.getElementById('editCollection').value) || 0;
+    const person = dataStore[state].persons.find(p => p.id === personId);
+    if (!person) { showToast('Person not found!', 'error'); closeModal('editModal'); return; }
+    if (!canEdit(person.name)) {
+        showToast('Permission denied!', 'error'); closeModal('editModal'); return;
+    }
+    if (currentPeriod === 'today') {
+        person.todayPlanSales = planSales;
+        person.todayPlanCollection = planCollection;
+        person.todaySales = sales;
+        person.todayCollection = collection;
+    } else {
+        person.planSales = planSales;
+        person.planCollection = planCollection;
+        person.sales = sales;
+        person.collection = collection;
+    }
+    // Save products
+    ['Urea','Dap','Seeds','Pesti','Fert'].forEach(function(prod){
+        var qtyVal = parseInt(document.getElementById('edit'+prod+'Qty').value) || 0;
+        var amtVal = parseInt(document.getElementById('edit'+prod+'Amt').value) || 0;
+        person[prod.toLowerCase()+'Qty'] = qtyVal;
+        person[prod.toLowerCase()+'Amt'] = amtVal;
+    });
+    // Save activities
+    const pPre = currentPeriod === 'today' ? 'todayPlan' : 'plan';
+    const aPre = currentPeriod === 'today' ? 'today' : '';
+    const actFields = ['FarmerContact','Gfm','Ofm','NightHalt','DilutionTest','Demos','FieldVisit','FieldDay','DealerAppointment','DealerAppointed'];
+    actFields.forEach(function(f){
+        var planVal = parseInt(document.getElementById('editPlan'+f).value) || 0;
+        var actVal = parseInt(document.getElementById('editAct'+f).value) || 0;
+        person[pPre+f] = planVal;
+        person[aPre+f] = actVal;
+    });
+    person.lastUpdated = Date.now();
+    saveData();
+    if (isSupabaseReady && person) {
+        await upsertPersonToSupabase(person, state);
+    }
+    renderStateSection(currentState);
+    showToast('Updated!');
+    closeModal('editModal');
+}
+
+async function zeroOutPerson(personId, state) {
+    if (currentUser.role !== 'admin') { showToast('Admin only!', 'error'); return; }
+    const person = dataStore[state].persons.find(p => p.id === personId);
+    if (!person) { showToast('Person not found!', 'error'); return; }
+    if (!confirm('Reset ALL figures to zero for "' + person.name + '"?')) return;
+    person.sales = 0;
+    person.collection = 0;
+    person.todaySales = 0;
+    person.todayCollection = 0;
+    person.planSales = 0;
+    person.planCollection = 0;
+    person.todayPlanSales = 0;
+    person.todayPlanCollection = 0;
+    // Zero out products
+    ['Urea','Dap','Seeds','Pesti','Fert'].forEach(function(prod){person[prod.toLowerCase()+'Qty']=0;person[prod.toLowerCase()+'Amt']=0;});
+    // Zero out activities
+    ['FarmerContact','Gfm','Ofm','NightHalt','DilutionTest','Demos','FieldVisit','FieldDay','DealerAppointment','DealerAppointed'].forEach(function(f){
+        person[f] = 0; person['today'+f] = 0; person['plan'+f] = 0; person['todayPlan'+f] = 0;
+    });
+    saveData();
+    renderStateSection(currentState);
+    showToast('All figures reset to zero for ' + person.name + '!', 'success');
+}
+
+async function deletePerson() {
+    if (currentUser.role !== 'admin') { showToast('Admin only!', 'error'); return; }
+    const personId = document.getElementById('editPersonId').value;
+    const state = document.getElementById('editState').value;
+    if (!confirm('Delete this entry?')) return;
+    dataStore[state].persons = dataStore[state].persons.filter(p => p.id !== personId);
+    saveData();
+    if (isSupabaseReady) {
+        await sb.from('team_persons').delete().eq('person_id', personId);
+    }
+    renderStateSection(currentState);
+    showToast('Deleted!');
+    closeModal('editModal');
+}
+
+function openSmartReset() {
+    var select = document.getElementById('resetStateSelect');
+    select.innerHTML = '<option value="__all__">🌐 All States</option>';
+    states.forEach(function(s) {
+        var opt = document.createElement('option');
+        opt.value = s;
+        opt.textContent = (stateNames[s] || s) + ' (' + (dataStore[s] ? dataStore[s].persons.length : 0) + ' members)';
+        select.appendChild(opt);
+    });
+    document.getElementById('smartResetModal').classList.add('show');
+}
+
+function executeSmartReset() {
+    var stateVal = document.getElementById('resetStateSelect').value;
+    var resetType = document.querySelector('input[name="resetType"]:checked').value;
+    var targetStates = stateVal === '__all__' ? states : [stateVal];
+    
+    var typeLabel = resetType === 'activities' ? 'Activities (figures)' : resetType === 'entries' ? 'All Entries (members)' : 'Everything (full reset)';
+    var scopeLabel = stateVal === '__all__' ? 'ALL states' : (stateNames[stateVal] || stateVal);
+    
+    if (!confirm('⚠️ RESET CONFIRMATION\n\nScope: ' + scopeLabel + '\nType: ' + typeLabel + '\n\nThis CANNOT be undone!\n\nProceed?')) return;
+    
+    var affectedMembers = 0;
+    
+    targetStates.forEach(function(s) {
+        if (!dataStore[s]) dataStore[s] = { persons: [] };
+        
+        if (resetType === 'activities') {
+            // Only reset figures - keep team structure
+            dataStore[s].persons.forEach(function(p) {
+                p.sales = 0; p.collection = 0;
+                p.todaySales = 0; p.todayCollection = 0;
+                p.planSales = 0; p.planCollection = 0;
+                p.todayPlanSales = 0; p.todayPlanCollection = 0;
+                p.farmerContact = 0; p.gfm = 0; p.ofm = 0; p.nightHalt = 0;
+                p.dilutionTest = 0; p.demos = 0; p.fieldVisit = 0; p.fieldDay = 0;
+                p.dealerAppointment = 0; p.dealerAppointed = 0;
+                p.todayFarmerContact = 0; p.todayGfm = 0; p.todayOfm = 0; p.todayNightHalt = 0;
+                p.todayDilutionTest = 0; p.todayDemos = 0; p.todayFieldVisit = 0; p.todayFieldDay = 0;
+                p.todayDealerAppointment = 0; p.todayDealerAppointed = 0;
+                p.planFarmerContact = 0; p.planGfm = 0; p.planOfm = 0; p.planNightHalt = 0;
+                p.planDilutionTest = 0; p.planDemos = 0; p.planFieldVisit = 0; p.planFieldDay = 0;
+                p.planDealerAppointment = 0; p.planDealerAppointed = 0;
+                p.todayPlanFarmerContact = 0; p.todayPlanGfm = 0; p.todayPlanOfm = 0;
+                p.todayPlanNightHalt = 0; p.todayPlanDilutionTest = 0; p.todayPlanDemos = 0;
+                p.todayPlanFieldVisit = 0; p.todayPlanFieldDay = 0;
+                p.todayPlanDealerAppointment = 0; p.todayPlanDealerAppointed = 0;
+                p.ureaQty = 0; p.ureaAmt = 0; p.dapQty = 0; p.dapAmt = 0;
+                p.seedsQty = 0; p.seedsAmt = 0; p.pestiQty = 0; p.pestiAmt = 0;
+                p.fertQty = 0; p.fertAmt = 0;
+                p.attendance = '';
+                p.lastUpdated = Date.now();
+                affectedMembers++;
+            });
+        } else if (resetType === 'entries') {
+            // Delete all team members but keep state
+            affectedMembers += dataStore[s].persons.length;
+            dataStore[s].persons = [];
+        } else if (resetType === 'full') {
+            // Complete reset - delete everything including users
+            affectedMembers += dataStore[s].persons.length;
+            dataStore[s].persons = [];
+            // Remove users of this state
+            var users = getUsers();
+            var remainingUsers = users.filter(function(u) { return u.state !== s || u.role === 'admin'; });
+            if (remainingUsers.length !== users.length) {
+                saveUsers(remainingUsers);
+            }
+        }
+    });
+    
+    saveData();
+    renderStateSection(currentState);
+    renderAdminPanel();
+    if (currentView === 'india') renderIndiaSection();
+    if (currentView === 'settings') switchView('settings');
+    closeModal('smartResetModal');
+    showToast(typeLabel + ' reset for ' + scopeLabel + '! (' + affectedMembers + ' members)', 'success');
+}
+
+function clearLocalCache() {
+    if (!confirm('DELETE ALL DATA on ALL DEVICES?\n\nThis will permanently remove all data from Supabase and reset the app everywhere.')) return;
+    // Clear localStorage
+    localStorage.clear();
+    // Reset dataStore to empty
+    states.forEach(state => {
+        dataStore[state] = { persons: [] };
+    });
+    saveData();
+    // Push empty data to Supabase
+    if (isSupabaseReady) {
+        for (var sk in dataStore) {
+            dataStore[sk].persons.forEach(function(p){
+                upsertPersonToSupabase(p, sk).catch(function(e){});
+            });
+        }
+    }
+    showToast('All data deleted from all devices! App will restart...', 'success');
+    setTimeout(() => {
+        window.location.href = window.location.href.split('?')[0] + '?reset=' + Date.now();
+    }, 1500);
+}
+
+async function handleSecuritySetup(e) {
+    e.preventDefault();
+    if (currentUser.role !== 'admin') {
+        showToast('Admin only!', 'error');
+        return;
+    }
+    const question = document.getElementById('setupSecurityQ').value.trim();
+    const answer = document.getElementById('setupSecurityA').value.trim();
+    if (!question || !answer) {
+        showToast('Question and answer required!', 'error');
+        return;
+    }
+    const users = getUsers();
+    const admin = users.find(u => u.id === currentUser.id);
+    if (admin) {
+        admin.securityQ = question;
+        admin.securityA = answer;
+        await saveUsers(users);
+        showToast('Security question saved!', 'success');
+        e.target.reset();
+    }
+}
+
+async function handleChangePassword(e) {
+    e.preventDefault();
+    const currentPw = document.getElementById('changeCurrentPw').value;
+    const newPw = document.getElementById('changeNewPw').value;
+    const confirmPw = document.getElementById('changeConfirmPw').value;
+
+    if (newPw.length < 4) {
+        showToast('New password must be at least 4 characters!', 'error');
+        return;
+    }
+    if (newPw !== confirmPw) {
+        showToast('New password and confirm password do not match!', 'error');
+        return;
+    }
+
+    const users = getUsers();
+    const user = users.find(u => u.id === currentUser.id);
+    if (!user) {
+        showToast('User not found!', 'error');
+        return;
+    }
+    if (user.password !== currentPw) {
+        showToast('Current password is incorrect!', 'error');
+        return;
+    }
+
+    user.password = newPw;
+    await saveUsers(users);
+
+    // Update session
+    currentUser = { ...user };
+    delete currentUser.password;
+    localStorage.setItem('bizsetu_session', JSON.stringify(currentUser));
+    localStorage.setItem('bizsetu_session_expiry', String(Date.now() + 7 * 24 * 60 * 60 * 1000));
+
+    showToast('Password updated successfully!', 'success');
+    e.target.reset();
+}
+
+// Event Listeners (state tabs are now dynamically created by rebuildStateTabs())
+
+document.querySelectorAll('.time-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentPeriod = btn.dataset.period;
+        if (currentView === 'state') renderStateSection(currentState);
+        else if (currentView === 'india') renderIndiaSection();
+    });
+});
+
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.classList.remove('show'); });
+});
+
+setInterval(() => {
+    if (currentView === 'state') renderStateSection(currentState);
+    else if (currentView === 'india') renderIndiaSection();
+}, 30000);
+
+function exportToPDF(personId, state) {
+    if (!window.jspdf || !window.jspdf.jsPDF) { showToast('PDF library loading... please try again in a moment.','error'); return; }
+    var person = dataStore[state].persons.find(function(p){return p.id===personId;});
+    if (!person) return;
+    try { var doc = new window.jspdf.jsPDF('p','mm','a4'); } catch(e) { showToast('PDF error: '+e.message,'error'); return; }
+    doc.setFontSize(16); doc.text('HSR Leader Board - Activities Report',105,20,{align:'center'});
+    doc.setFontSize(11); doc.text('Name: ' + person.name + ' | District: ' + person.district + ' | State: ' + stateNames[state],105,30,{align:'center'});
+    doc.setFontSize(10); doc.text('Period: ' + (currentPeriod==='today'?'Today':'This Month') + ' | Date: ' + new Date().toLocaleDateString('en-IN'),105,36,{align:'center'});
+    // Activities table
+    var ap = currentPeriod==='today'?'todayPlan':'plan'; var aa = currentPeriod==='today'?'today':'';
+    var activities = [
+        ['Sales', person[ap+'Sales']||0, person[aa+'Sales']||0],
+        ['Collection', person[ap+'Collection']||0, person[aa+'Collection']||0],
+        ['Farmer Contact', person[ap+'FarmerContact']||0, person[aa+'FarmerContact']||0],
+        ['GFM', person[ap+'Gfm']||0, person[aa+'Gfm']||0],
+        ['OFM', person[ap+'Ofm']||0, person[aa+'Ofm']||0],
+        ['Night Halt', person[ap+'NightHalt']||0, person[aa+'NightHalt']||0],
+        ['Dilution Test', person[ap+'DilutionTest']||0, person[aa+'DilutionTest']||0],
+        ['Demos', person[ap+'Demos']||0, person[aa+'Demos']||0],
+        ['Field Visit', person[ap+'FieldVisit']||0, person[aa+'FieldVisit']||0],
+        ['Field Day', person[ap+'FieldDay']||0, person[aa+'FieldDay']||0],
+        ['Dealer Appointment', person[ap+'DealerAppointment']||0, person[aa+'DealerAppointment']||0],
+        ['Dealer Appointed', person[ap+'DealerAppointed']||0, person[aa+'DealerAppointed']||0]
+    ];
+    // Simple table rendering
+    var y = 50, colX = [20,70,110,150];
+    doc.setFontSize(10); doc.setFont(undefined,'bold');
+    doc.text('Activity',colX[0],y); doc.text('Plan',colX[1],y); doc.text('Actual',colX[2],y); doc.text('%',colX[3],y);
+    doc.setFont(undefined,'normal'); y += 8;
+    activities.forEach(function(row){
+        var pct = row[1]>0?Math.round((row[2]/row[1])*100)+'%':'-';
+        doc.text(row[0],colX[0],y); doc.text(String(row[1]),colX[1],y); doc.text(String(row[2]),colX[2],y); doc.text(pct,colX[3],y);
+        y += 7;
+        if (y > 280) { doc.addPage(); y = 20; }
+    });
+    doc.save('Activities_' + person.name + '_' + new Date().toISOString().slice(0,10) + '.pdf');
+}
+
+function exportToExcel(personId, state) {
+    if (!window.XLSX) { showToast('Excel library loading... please try again in a moment.','error'); return; }
+    var person = dataStore[state].persons.find(function(p){return p.id===personId;});
+    if (!person) return;
+    var ap = currentPeriod==='today'?'todayPlan':'plan'; var aa = currentPeriod==='today'?'today':'';
+    var data = [
+        ['Activity','Plan','Actual','Percent'],
+        ['Sales', person[ap+'Sales']||0, person[aa+'Sales']||0, ((person[ap+'Sales']||0)>0?Math.round(((person[aa+'Sales']||0)/(person[ap+'Sales']||0))*100)+'%':'-')],
+        ['Collection', person[ap+'Collection']||0, person[aa+'Collection']||0, ((person[ap+'Collection']||0)>0?Math.round(((person[aa+'Collection']||0)/(person[ap+'Collection']||0))*100)+'%':'-')],
+        ['Farmer Contact', person[ap+'FarmerContact']||0, person[aa+'FarmerContact']||0, ((person[ap+'FarmerContact']||0)>0?Math.round(((person[aa+'FarmerContact']||0)/(person[ap+'FarmerContact']||0))*100)+'%':'-')],
+        ['GFM', person[ap+'Gfm']||0, person[aa+'Gfm']||0, ((person[ap+'Gfm']||0)>0?Math.round(((person[aa+'Gfm']||0)/(person[ap+'Gfm']||0))*100)+'%':'-')],
+        ['OFM', person[ap+'Ofm']||0, person[aa+'Ofm']||0, ((person[ap+'Ofm']||0)>0?Math.round(((person[aa+'Ofm']||0)/(person[ap+'Ofm']||0))*100)+'%':'-')],
+        ['Night Halt', person[ap+'NightHalt']||0, person[aa+'NightHalt']||0, ((person[ap+'NightHalt']||0)>0?Math.round(((person[aa+'NightHalt']||0)/(person[ap+'NightHalt']||0))*100)+'%':'-')],
+        ['Dilution Test', person[ap+'DilutionTest']||0, person[aa+'DilutionTest']||0, ((person[ap+'DilutionTest']||0)>0?Math.round(((person[aa+'DilutionTest']||0)/(person[ap+'DilutionTest']||0))*100)+'%':'-')],
+        ['Demos', person[ap+'Demos']||0, person[aa+'Demos']||0, ((person[ap+'Demos']||0)>0?Math.round(((person[aa+'Demos']||0)/(person[ap+'Demos']||0))*100)+'%':'-')],
+        ['Field Visit', person[ap+'FieldVisit']||0, person[aa+'FieldVisit']||0, ((person[ap+'FieldVisit']||0)>0?Math.round(((person[aa+'FieldVisit']||0)/(person[ap+'FieldVisit']||0))*100)+'%':'-')],
+        ['Field Day', person[ap+'FieldDay']||0, person[aa+'FieldDay']||0, ((person[ap+'FieldDay']||0)>0?Math.round(((person[aa+'FieldDay']||0)/(person[ap+'FieldDay']||0))*100)+'%':'-')],
+        ['Dealer Appointment', person[ap+'DealerAppointment']||0, person[aa+'DealerAppointment']||0, ((person[ap+'DealerAppointment']||0)>0?Math.round(((person[aa+'DealerAppointment']||0)/(person[ap+'DealerAppointment']||0))*100)+'%':'-')],
+        ['Dealer Appointed', person[ap+'DealerAppointed']||0, person[aa+'DealerAppointed']||0, ((person[ap+'DealerAppointed']||0)>0?Math.round(((person[aa+'DealerAppointed']||0)/(person[ap+'DealerAppointed']||0))*100)+'%':'-')]
+    ];
+    var ws = window.XLSX.utils.aoa_to_sheet(data);
+    var wb = window.XLSX.utils.book_new();
+    window.XLSX.utils.book_append_sheet(wb, ws, 'Activities');
+    window.XLSX.writeFile(wb, 'Activities_' + person.name + '_' + new Date().toISOString().slice(0,10) + '.xlsx');
+}
+
+function exportStateToPDF(state) {
+    if (!window.jspdf || !window.jspdf.jsPDF) { showToast('PDF library loading... please try again in a moment.','error'); return; }
+    var persons = dataStore[state].persons;
+    if (!persons || persons.length === 0) return;
+    try { var doc = new window.jspdf.jsPDF('p','mm','a4'); } catch(e) { showToast('PDF error: '+e.message,'error'); return; }
+    doc.setFontSize(16); doc.text('HSR Leader Board - State Activities Report',105,20,{align:'center'});
+    doc.setFontSize(12); doc.text('State: ' + stateNames[state] + ' | Team: ' + persons.length + ' members',105,28,{align:'center'});
+    doc.setFontSize(10); doc.text('Period: ' + (currentPeriod==='today'?'Today':'This Month') + ' | Date: ' + new Date().toLocaleDateString('en-IN'),105,34,{align:'center'});
+    var sap = currentPeriod==='today'?'todayPlan':'plan'; var saa = currentPeriod==='today'?'today':'';
+    function sAct(field) { var t=0; persons.forEach(function(p){t+=(p[saa+field]||0);}); return t; }
+    function sPlan(field) { var t=0; persons.forEach(function(p){t+=(p[sap+field]||0);}); return t; }
+    var activities = [
+        ['Sales', sPlan('Sales'), sAct('Sales')],
+        ['Collection', sPlan('Collection'), sAct('Collection')],
+        ['Farmer Contact', sPlan('FarmerContact'), sAct('FarmerContact')],
+        ['GFM', sPlan('Gfm'), sAct('Gfm')],
+        ['OFM', sPlan('Ofm'), sAct('Ofm')],
+        ['Night Halt', sPlan('NightHalt'), sAct('NightHalt')],
+        ['Dilution Test', sPlan('DilutionTest'), sAct('DilutionTest')],
+        ['Demos', sPlan('Demos'), sAct('Demos')],
+        ['Field Visit', sPlan('FieldVisit'), sAct('FieldVisit')],
+        ['Field Day', sPlan('FieldDay'), sAct('FieldDay')],
+        ['Dealer Appointment', sPlan('DealerAppointment'), sAct('DealerAppointment')],
+        ['Dealer Appointed', sPlan('DealerAppointed'), sAct('DealerAppointed')]
+    ];
+    var y = 45, colX = [20,70,110,150];
+    doc.setFontSize(10); doc.setFont(undefined,'bold');
+    doc.text('Activity',colX[0],y); doc.text('Plan',colX[1],y); doc.text('Actual',colX[2],y); doc.text('%',colX[3],y);
+    doc.setFont(undefined,'normal'); y += 8;
+    activities.forEach(function(row){
+        var pct = row[1]>0?Math.round((row[2]/row[1])*100)+'%':'-';
+        doc.text(row[0],colX[0],y); doc.text(String(row[1]),colX[1],y); doc.text(String(row[2]),colX[2],y); doc.text(pct,colX[3],y);
+        y += 7;
+        if (y > 280) { doc.addPage(); y = 20; }
+    });
+    doc.save('StateActivities_' + stateNames[state] + '_' + new Date().toISOString().slice(0,10) + '.pdf');
+}
+
+
+// ==================== WHATSAPP SHARE ====================
+function shareWhatsApp(personId, state) {
+    var person = dataStore[state].persons.find(function(p){return p.id===personId;});
+    if (!person) return;
+    var ap = currentPeriod==='today'?'todayPlan':'plan';
+    var aa = currentPeriod==='today'?'today':'';
+    var text = '*HSR Leader Board - ' + person.name + '*\n';
+    text += 'State: ' + stateNames[state] + ' | District: ' + person.district + '\n\n';
+    text += '*Sales:* Plan ₹' + (person[ap+'Sales']||0) + ' | Actual ₹' + (person[aa+'Sales']||0) + '\n';
+    text += '*Collection:* Plan ₹' + (person[ap+'Collection']||0) + ' | Actual ₹' + (person[aa+'Collection']||0) + '\n';
+    text += '*Farmer Contact:* ' + (person[aa+'FarmerContact']||0) + '/' + (person[ap+'FarmerContact']||0) + '\n';
+    text += '*Demos:* ' + (person[aa+'Demos']||0) + '/' + (person[ap+'Demos']||0) + '\n';
+    text += '*Field Visit:* ' + (person[aa+'FieldVisit']||0) + '/' + (person[ap+'FieldVisit']||0) + '\n';
+    text += '*Night Halt:* ' + (person[aa+'NightHalt']||0) + '/' + (person[ap+'NightHalt']||0);
+    var url = 'https://wa.me/?text=' + encodeURIComponent(text);
+    window.open(url, '_blank');
+}
+
+function exportStateToExcel(state) {
+    if (!window.XLSX) { showToast('Excel library loading... please try again in a moment.','error'); return; }
+    var persons = dataStore[state].persons;
+    if (!persons || persons.length === 0) return;
+    var sap = currentPeriod==='today'?'todayPlan':'plan'; var saa = currentPeriod==='today'?'today':'';
+    function sAct(field) { var t=0; persons.forEach(function(p){t+=(p[saa+field]||0);}); return t; }
+    function sPlan(field) { var t=0; persons.forEach(function(p){t+=(p[sap+field]||0);}); return t; }
+    function spct(plan,actual) { if(!plan||plan<=0)return'-'; return Math.round((actual/plan)*100)+'%'; }
+    var data = [
+        ['Activity','Plan','Actual','Percent'],
+        ['Sales', sPlan('Sales'), sAct('Sales'), spct(sPlan('Sales'),sAct('Sales'))],
+        ['Collection', sPlan('Collection'), sAct('Collection'), spct(sPlan('Collection'),sAct('Collection'))],
+        ['Farmer Contact', sPlan('FarmerContact'), sAct('FarmerContact'), spct(sPlan('FarmerContact'),sAct('FarmerContact'))],
+        ['GFM', sPlan('Gfm'), sAct('Gfm'), spct(sPlan('Gfm'),sAct('Gfm'))],
+        ['OFM', sPlan('Ofm'), sAct('Ofm'), spct(sPlan('Ofm'),sAct('Ofm'))],
+        ['Night Halt', sPlan('NightHalt'), sAct('NightHalt'), spct(sPlan('NightHalt'),sAct('NightHalt'))],
+        ['Dilution Test', sPlan('DilutionTest'), sAct('DilutionTest'), spct(sPlan('DilutionTest'),sAct('DilutionTest'))],
+        ['Demos', sPlan('Demos'), sAct('Demos'), spct(sPlan('Demos'),sAct('Demos'))],
+        ['Field Visit', sPlan('FieldVisit'), sAct('FieldVisit'), spct(sPlan('FieldVisit'),sAct('FieldVisit'))],
+        ['Field Day', sPlan('FieldDay'), sAct('FieldDay'), spct(sPlan('FieldDay'),sAct('FieldDay'))],
+        ['Dealer Appointment', sPlan('DealerAppointment'), sAct('DealerAppointment'), spct(sPlan('DealerAppointment'),sAct('DealerAppointment'))],
+        ['Dealer Appointed', sPlan('DealerAppointed'), sAct('DealerAppointed'), spct(sPlan('DealerAppointed'),sAct('DealerAppointed'))]
+    ];
+    var ws = window.XLSX.utils.aoa_to_sheet(data);
+    var wb = window.XLSX.utils.book_new();
+    window.XLSX.utils.book_append_sheet(wb, ws, stateNames[state]);
+    window.XLSX.writeFile(wb, 'StateActivities_' + stateNames[state] + '_' + new Date().toISOString().slice(0,10) + '.xlsx');
+}
+
+function downloadMonthSnapshot(monthKey) {
+    var snapshot = JSON.parse(localStorage.getItem(monthKey) || '{}');
+    if(!snapshot) { showToast('No data found!','error'); return; }
+    var allData = [['State','Name','District','Sales','Collection','Plan Sales','Plan Collection','Farmer Contact','GFM','OFM','Night Halt','Dilution Test','Demos','Field Visit','Field Day','Dealer Appointment','Dealer Appointed']];
+    states.forEach(function(s){
+        if(snapshot[s] && snapshot[s].persons){
+            snapshot[s].persons.forEach(function(p){
+                allData.push([stateNames[s]||s, p.name, p.district, p.sales||0, p.collection||0, p.planSales||0, p.planCollection||0, p.FarmerContact||0, p.Gfm||0, p.Ofm||0, p.NightHalt||0, p.DilutionTest||0, p.Demos||0, p.FieldVisit||0, p.FieldDay||0, p.DealerAppointment||0, p.DealerAppointed||0]);
+            });
+        }
+    });
+    var ws = window.XLSX.utils.aoa_to_sheet(allData);
+    var wb = window.XLSX.utils.book_new();
+    window.XLSX.utils.book_append_sheet(wb, ws, 'Snapshot');
+    window.XLSX.writeFile(wb, monthKey + '.xlsx');
+}
+
+
+// Initialize
+initData();
+initAuth().then(function(){
+    console.log('App initialized');
+});
+</script>
+<!-- Supabase Sync Only -->
+
+
+
+<script>
+// Register Service Worker for PWA
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js')
+        .then(function(reg) { console.log('SW registered:', reg.scope); })
+        .catch(function(err) { console.log('SW failed:', err); });
+}
+// Install functions (deferredPrompt declared in <head>)
+var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+var isAndroid = /Android/.test(navigator.userAgent);
+
+function installApp() {
+    if (isIOS) { 
+        showToast('Step 1: Tap Share button (bottom center) | Step 2: Scroll down | Step 3: Tap "Add to Home Screen"', 'info'); 
+        return; 
+    }
+    if (!deferredPrompt) { 
+        showToast('Chrome: Tap 3-dots menu (top right) > "Add to Home screen"', 'info'); 
+        return; 
+    }
+    deferredPrompt.prompt();
+    deferredPrompt.userChoice.then(function(choice) {
+        if (choice.outcome === 'accepted') {
+            showToast('App installed! Check your home screen', 'success');
+            document.getElementById('installBanner').style.display = 'none';
+        }
+        deferredPrompt = null;
+    });
+}
+
+function showInstallBanner() {
+    var banner = document.getElementById('installBanner');
+    var dismissed = localStorage.getItem('bizsetu_installDismissed');
+    var isStandalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+    if (!isStandalone && !dismissed && banner) banner.classList.add('show');
+}
+
+function dismissInstall() {
+    var banner = document.getElementById('installBanner');
+    if (banner) banner.style.display = 'none';
+    localStorage.setItem('bizsetu_installDismissed', '1');
+}
+
+// Auto-show install hint after 2 seconds
+document.addEventListener('DOMContentLoaded', function(){
+    setTimeout(function(){
+        var isStandalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+        if (isStandalone) return; // Already installed
+        var dismissed = localStorage.getItem('bizsetu_installDismissed');
+        if (dismissed) return;
+        // iOS: always show since beforeinstallprompt doesn't fire
+        if (isIOS) { showInstallBanner(); return; }
+        // Android: show if deferredPrompt is ready
+        if (isAndroid && deferredPrompt) showInstallBanner();
+        // Desktop Chrome: show if deferredPrompt is ready
+        if (!isIOS && !isAndroid && deferredPrompt) showInstallBanner();
+    }, 2000);
+});
+</script>
+
+<!-- Auto Install Banner -->
+<div class="install-banner" id="installBanner">
+    <div class="install-text">
+        📲 Install HSR Leader Board
+        <small id="installHintText">Tap Install to add to home screen</small>
+    </div>
+    <button class="install-btn" onclick="installApp()">Install Now</button>
+    <button class="install-close" onclick="dismissInstall()">&times;</button>
+</div>
+<script>
+// Set platform-specific hint
+(function(){
+    var hint = document.getElementById('installHintText');
+    if (!hint) return;
+    if (/iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream) {
+        hint.textContent = 'Safari: Tap Share button > Add to Home Screen';
+    } else if (/Android/.test(navigator.userAgent)) {
+        hint.textContent = 'Chrome: Tap Install or Menu (3 dots) > Add to Home screen';
+    } else {
+        hint.textContent = 'Chrome: Tap Install or use menu > Install';
+    }
+})();
+</script>
+
+</body>
+</html>
