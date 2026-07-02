@@ -28,18 +28,6 @@ window.addEventListener('beforeinstallprompt', function(e) {
     }, 2000);
 });
 </script>
-<script>
-// Force clear any old cached data on page load
-(function(){
-    var oldKeys = Object.keys(localStorage).filter(function(k){
-        return k.indexOf('bizsetu_') === 0;
-    });
-    var allowedKeys = ['bizsetu_users', 'bizsetu_data_v6'];
-    oldKeys.forEach(function(k){
-        if (allowedKeys.indexOf(k) === -1) localStorage.removeItem(k);
-    });
-})();
-</script>
 <title>HSR Leader board - Live Sales & Collection & Activities</title>
 <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
