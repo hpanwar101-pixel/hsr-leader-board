@@ -1043,6 +1043,13 @@ async function initAuth() {
                 delete currentUser.password;
                 showMainApp();
                 console.log('Auto-login: session restored for ' + currentUser.name);
+            } else if (sessionUser.id && sessionUser.name && sessionUser.role) {
+                // Keep a valid saved session when cloud user sync is temporarily
+                // unavailable or has not finished yet (common on mobile refresh).
+                currentUser = { ...sessionUser };
+                delete currentUser.password;
+                showMainApp();
+                console.log('Auto-login: cached session restored for ' + currentUser.name);
             } else {
                 localStorage.removeItem('bizsetu_session');
                 localStorage.removeItem('bizsetu_session_expiry');
