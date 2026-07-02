@@ -781,12 +781,17 @@ async function loadUsersFromSupabase() {
         if (error) throw error;
         if (data && data.length > 0) {
             _users = data.map(function(u){
+                var permissions = u.view_permissions;
+                if (typeof permissions === 'string') {
+                    try { permissions = JSON.parse(permissions); } catch(e) { permissions = []; }
+                }
+                if (!Array.isArray(permissions)) permissions = [];
                 return {
                     id: u.user_id, password: u.password, name: u.name,
                     role: u.role, state: u.state, district: u.district,
-                    manager: u.manager_id, viewPermissions: JSON.parse(u.view_permissions || '[]'),
-                    securityQuestion: u.security_question || '',
-                    securityAnswer: u.security_answer || ''
+                    manager: u.manager_id, viewPermissions: permissions,
+                    securityQ: u.security_question || '',
+                    securityA: u.security_answer || ''
                 };
             });
             saveUsersLocal(); // cache locally
@@ -811,9 +816,9 @@ async function pushLocalUsersToSupabase() {
             user_id: u.id, password: u.password, name: u.name,
             role: u.role, state: u.state || 'MP', district: u.district || '',
             manager_id: u.manager || null,
-            view_permissions: JSON.stringify(u.viewPermissions || []),
-            security_question: u.securityQuestion || '',
-            security_answer: u.securityAnswer || ''
+            view_permissions: u.viewPermissions || [],
+            security_question: u.securityQ || '',
+            security_answer: u.securityA || ''
         }, { onConflict: 'user_id' });
     }
     await loadUsersFromSupabase();
@@ -834,9 +839,9 @@ async function saveUsers(users) {
                 user_id: u.id, password: u.password, name: u.name,
                 role: u.role, state: u.state || 'MP', district: u.district || '',
                 manager_id: u.manager || null,
-                view_permissions: JSON.stringify(u.viewPermissions || []),
-                security_question: u.securityQuestion || '',
-                security_answer: u.securityAnswer || ''
+                view_permissions: u.viewPermissions || [],
+                security_question: u.securityQ || '',
+                security_answer: u.securityA || ''
             }, { onConflict: 'user_id' });
         }
     } catch(e) { console.error('Supabase save users error:', e); }
