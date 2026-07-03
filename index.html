@@ -2471,6 +2471,7 @@ document.querySelectorAll('.modal-overlay').forEach(overlay => {
 });
 
 setInterval(() => {
+    if (!currentUser) return;
     if (currentView === 'state') renderStateSection(currentState);
     else if (currentView === 'india') renderIndiaSection();
 }, 30000);
