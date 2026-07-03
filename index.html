@@ -409,11 +409,9 @@ body { font-family:'Inter',sans-serif; background: var(--bg); color:var(--text);
                 <div class="admin-title"><i class="fas fa-users-cog"></i> Manage Users</div>
                 <div class="user-list" id="userList"></div>
                 <div class="admin-title" style="margin-top:16px;">
-                    <i class="fas fa-cloud-upload-alt"></i> Backup &amp; Recovery
-                    <button class="user-item-btn" onclick="createBackupNow()" style="margin-left:auto;background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:#fff;border:none;font-size:11px;"><i class="fas fa-save"></i> Backup Now</button>
+                    <i class="fas fa-cloud"></i> Supabase Cloud Sync
                 </div>
-                <div id="backupStatus" style="font-size:11px;color:var(--text-light);margin-bottom:8px;"></div>
-                <div class="user-list" id="backupList"></div>
+                <div style="font-size:11px;color:var(--success);margin-bottom:8px;"><i class="fas fa-check-circle"></i> Users and team data load only from Supabase.</div>
             </div>
         </div>
 
@@ -604,7 +602,7 @@ var isSupabaseReady = false;
 
 function initSupabase() {
     if (SUPABASE_URL === 'YOUR_SUPABASE_URL' || SUPABASE_ANON_KEY === 'YOUR_SUPABASE_ANON_KEY' || SUPABASE_ANON_KEY.indexOf('4bE6um2L7ZyrbAhM1Q2q5x8j8d9e0f1g2h3i4j5k6l7m8n9o0p1q2r3s4t5u6v') !== -1) {
-        console.log('Supabase not configured - using localStorage only');
+        console.error('Supabase is not configured; cloud data is unavailable.');
         isSupabaseReady = false;
         return;
     }
@@ -745,11 +743,11 @@ function supabaseToPerson(p) {
 }
 
 async function upsertPersonToSupabase(person, stateId) {
-    if (!isSupabaseReady) return;
-    try {
-        var record = personToSupabase(person, stateId);
-        await sb.from('team_persons').upsert(record, { onConflict: 'person_id' });
-    } catch(e) { console.error('Upsert person error:', e); }
+    if (!isSupabaseReady) throw new Error('Supabase connection is not ready');
+    var record = personToSupabase(person, stateId);
+    var { error } = await sb.from('team_persons').upsert(record, { onConflict: 'person_id' });
+    if (error) throw error;
+    return true;
 }
 
 var _users = [];
@@ -759,137 +757,84 @@ function getUsers() {
 }
 
 async function loadUsersFromSupabase() {
+    _users = [];
     if (!isSupabaseReady) {
-        _users = JSON.parse(localStorage.getItem('bizsetu_users') || '[]');
-        if (_users.length === 0) { _users = DEFAULT_USERS; saveUsersLocal(); }
         return;
     }
     try {
         var { data, error } = await sb.from('app_users').select('*');
         if (error) throw error;
-        if (data && data.length > 0) {
-            _users = data.map(function(u){
-                var permissions = u.view_permissions;
-                if (typeof permissions === 'string') {
-                    try { permissions = JSON.parse(permissions); } catch(e) { permissions = []; }
-                }
-                if (!Array.isArray(permissions)) permissions = [];
-                return {
-                    id: u.user_id, password: u.password, name: u.name,
-                    role: u.role, state: u.state, district: u.district,
-                    manager: u.manager_id, viewPermissions: permissions,
-                    securityQ: u.security_question || '',
-                    securityA: u.security_answer || ''
-                };
-            });
-            saveUsersLocal(); // cache locally
-        } else {
-            // Push local users to Supabase
-            await pushLocalUsersToSupabase();
-        }
+        _users = (data || []).map(function(u){
+            var permissions = u.view_permissions;
+            if (typeof permissions === 'string') {
+                try { permissions = JSON.parse(permissions); } catch(e) { permissions = []; }
+            }
+            if (!Array.isArray(permissions)) permissions = [];
+            return {
+                id: u.user_id, password: u.password, name: u.name,
+                role: u.role, state: u.state, district: u.district,
+                manager: u.manager_id, viewPermissions: permissions,
+                securityQ: u.security_question || '',
+                securityA: u.security_answer || ''
+            };
+        });
     } catch(e) {
         console.error('Supabase load users error:', e);
-        _users = JSON.parse(localStorage.getItem('bizsetu_users') || '[]');
-        if (_users.length === 0) { _users = DEFAULT_USERS; }
+        _users = [];
     }
 }
 
-async function pushLocalUsersToSupabase() {
-    if (!isSupabaseReady) return;
-    var localUsers = JSON.parse(localStorage.getItem('bizsetu_users') || '[]');
-    if (localUsers.length === 0) localUsers = DEFAULT_USERS;
-    for (var i = 0; i < localUsers.length; i++) {
-        var u = localUsers[i];
-        await sb.from('app_users').upsert({
+async function saveUsers(users) {
+    if (!isSupabaseReady) throw new Error('Cloud connection unavailable. Please try again online.');
+    var records = users.map(function(u) {
+        return {
             user_id: u.id, password: u.password, name: u.name,
             role: u.role, state: u.state || 'MP', district: u.district || '',
             manager_id: u.manager || null,
             view_permissions: u.viewPermissions || [],
             security_question: u.securityQ || '',
             security_answer: u.securityA || ''
-        }, { onConflict: 'user_id' });
+        };
+    });
+    if (records.length > 0) {
+        var { error } = await sb.from('app_users').upsert(records, { onConflict: 'user_id' });
+        if (error) throw error;
     }
-    await loadUsersFromSupabase();
-}
-
-function saveUsersLocal() {
-    localStorage.setItem('bizsetu_users', JSON.stringify(_users));
-}
-
-async function saveUsers(users) {
-    _users = users;
-    saveUsersLocal();
-    if (!isSupabaseReady) return;
-    try {
-        for (var i = 0; i < users.length; i++) {
-            var u = users[i];
-            await sb.from('app_users').upsert({
-                user_id: u.id, password: u.password, name: u.name,
-                role: u.role, state: u.state || 'MP', district: u.district || '',
-                manager_id: u.manager || null,
-                view_permissions: u.viewPermissions || [],
-                security_question: u.securityQ || '',
-                security_answer: u.securityA || ''
-            }, { onConflict: 'user_id' });
-        }
-    } catch(e) { console.error('Supabase save users error:', e); }
+    _users = users.slice();
+    return records.length;
 }
 
 async function loadDataFromSupabase() {
+    dataStore = {};
+    states.forEach(function(s){ dataStore[s] = { persons: [] }; });
     if (!isSupabaseReady) {
-        // Fallback to localStorage
-        var savedData = localStorage.getItem('bizsetu_data_v6');
-        if (savedData) { try { dataStore = JSON.parse(savedData); } catch(e){} }
-        var savedNames = localStorage.getItem('bizsetu_stateNames');
-        if (savedNames) { try { stateNames = JSON.parse(savedNames); } catch(e){} }
-        states.forEach(function(s){ if(!dataStore[s]) dataStore[s] = {persons:[]}; });
         return;
     }
     try {
         // Load states
-        var { data: statesData } = await sb.from('states').select('*');
+        var { data: statesData, error: statesError } = await sb.from('states').select('*');
+        if (statesError) throw statesError;
         if (statesData && statesData.length > 0) {
-            statesData.forEach(function(s){ stateNames[s.id] = s.name; });
+            statesData.forEach(function(s){
+                if (states.indexOf(s.id) === -1) states.push(s.id);
+                stateNames[s.id] = s.name;
+                if (!dataStore[s.id]) dataStore[s.id] = { persons: [] };
+            });
         }
         // Load team persons
-        var { data: persons } = await sb.from('team_persons').select('*');
-        if (persons && persons.length > 0) {
-            dataStore = {};
-            states.forEach(function(s){ dataStore[s] = {persons:[]}; });
-            persons.forEach(function(p){
-                var person = supabaseToPerson(p);
-                if (dataStore[p.state_id]) dataStore[p.state_id].persons.push(person);
-            });
-            saveDataLocal(); // cache locally
-        } else {
-            // Push local data to Supabase
-            await pushLocalDataToSupabase();
-        }
+        var { data: persons, error: personsError } = await sb.from('team_persons').select('*');
+        if (personsError) throw personsError;
+        (persons || []).forEach(function(p){
+            if (!dataStore[p.state_id]) dataStore[p.state_id] = { persons: [] };
+            dataStore[p.state_id].persons.push(supabaseToPerson(p));
+        });
     } catch(e) {
         console.error('Supabase load data error:', e);
-        var savedData = localStorage.getItem('bizsetu_data_v6');
-        if (savedData) { try { dataStore = JSON.parse(savedData); } catch(e2){} }
     }
-}
-
-async function pushLocalDataToSupabase() {
-    if (!isSupabaseReady) return;
-    for (var stateKey in dataStore) {
-        var persons = dataStore[stateKey].persons;
-        for (var i = 0; i < persons.length; i++) {
-            await upsertPersonToSupabase(persons[i], stateKey);
-        }
-    }
-}
-
-function saveDataLocal() {
-    localStorage.setItem('bizsetu_data_v6', JSON.stringify(dataStore));
-    localStorage.setItem('bizsetu_stateNames', JSON.stringify(stateNames));
 }
 
 async function saveData() {
-    saveDataLocal();
-    if (!isSupabaseReady) return;
+    if (!isSupabaseReady) return false;
     try {
         for (var stateKey in dataStore) {
             var persons = dataStore[stateKey].persons;
@@ -897,7 +842,11 @@ async function saveData() {
                 await upsertPersonToSupabase(persons[i], stateKey);
             }
         }
-    } catch(e) { console.error('Supabase save error:', e); }
+        return true;
+    } catch(e) {
+        console.error('Supabase save error:', e);
+        return false;
+    }
 }
 
 // ==================== I18N / TRANSLATIONS ====================
@@ -995,35 +944,8 @@ let currentUser = null;
 
 async function initAuth() {
     try { initSupabase(); } catch(e) { console.log('Supabase init skipped'); isSupabaseReady = false; }
-    try { await loadUsersFromSupabase(); } catch(e) { console.log('Users loaded from localStorage'); }
-    try { await loadDataFromSupabase(); } catch(e) { console.log('Data loaded from localStorage'); }
-    // Ensure admin user always exists
-    const savedUsers = localStorage.getItem('bizsetu_users');
-    if (savedUsers) {
-        try {
-            const parsedUsers = JSON.parse(savedUsers);
-            if (!parsedUsers.find(u => u.id === 'admin')) {
-                parsedUsers.unshift(DEFAULT_USERS[0]);
-                localStorage.setItem('bizsetu_users', JSON.stringify(parsedUsers));
-            }
-        } catch(e) {
-            localStorage.setItem('bizsetu_users', JSON.stringify(DEFAULT_USERS));
-        }
-    } else {
-        localStorage.setItem('bizsetu_users', JSON.stringify(DEFAULT_USERS));
-    }
-    // Load saved data (stateNames + states + dataStore) - preserves all data across deploys
-    var hasSavedData = localStorage.getItem('bizsetu_data_v6');
-    if (hasSavedData) {
-        loadData();
-    } else {
-        // First time: init empty structure
-        initData();
-    }
-    // Auto hourly backup check
-    runAutoBackup();
-    // Periodic backup check every 10 minutes
-    setInterval(runAutoBackup, 10 * 60 * 1000);
+    await loadUsersFromSupabase();
+    await loadDataFromSupabase();
     // Restore session if exists (valid for 7 days)
     const session = localStorage.getItem('bizsetu_session');
     const sessionExpiry = localStorage.getItem('bizsetu_session_expiry');
@@ -1061,20 +983,9 @@ async function initAuth() {
             currentUser = null; 
         }
     }
-    checkDateRollup();
-    // Offline mode support
+    // Cloud-only mode: keep UI available, but never queue business data locally.
     window.addEventListener('online', function(){showToast('Back online!', 'success');});
-    window.addEventListener('offline', function(){showToast('Offline mode - data will sync when online', 'warning');});
-    // Override saveData to work offline
-    var origSaveData = saveData;
-    saveData = function(){
-        origSaveData();
-        if (!navigator.onLine) {
-            var queue = JSON.parse(localStorage.getItem('bizsetu_syncQueue') || '[]');
-            queue.push({timestamp: Date.now(), data: JSON.parse(JSON.stringify(dataStore))});
-            localStorage.setItem('bizsetu_syncQueue', JSON.stringify(queue));
-        }
-    };
+    window.addEventListener('offline', function(){showToast('Offline - cloud changes are unavailable', 'warning');});
 }
 
 function showForgotPassword() {
@@ -1085,7 +996,7 @@ function showForgotPassword() {
 
 function loadSecurityQuestion() {
     const userId = document.getElementById('forgotUserId').value.trim().toLowerCase();
-    const users = getUsers();
+    const users = getUsers().slice();
     const user = users.find(u => u.id === userId);
     if (user && user.securityQ) {
         document.getElementById('securityQuestionDisplay').value = user.securityQ;
@@ -1240,19 +1151,33 @@ function populateManagerDropdown() {
 
 
 // ==================== BULK UPLOAD ====================
+function resolveStateId(rawState) {
+    var value = String(rawState || 'MP').trim().toLowerCase();
+    return states.find(function(stateId) {
+        return stateId.toLowerCase() === value || String(stateNames[stateId] || '').trim().toLowerCase() === value;
+    }) || null;
+}
+
 async function handleBulkUpload(input) {
     var file = input.files[0];
     if (!file) return;
     if (!window.XLSX) { showToast('Excel library loading...','error'); return; }
+    if (!isSupabaseReady) { showToast('Cloud connection unavailable. Try again online.','error'); return; }
     var reader = new FileReader();
     reader.onload = async function(e){
+        var resultDiv = document.getElementById('bulkResult');
         try {
             var data = new Uint8Array(e.target.result);
             var workbook = window.XLSX.read(data, {type:'array'});
             var firstSheet = workbook.Sheets[workbook.SheetNames[0]];
             var rows = window.XLSX.utils.sheet_to_json(firstSheet, {header:1});
-            var skipped = 0, created = 0;
-            var users = getUsers();
+            var skipped = 0;
+            var existingUsers = getUsers().slice();
+            var existingIds = {};
+            existingUsers.forEach(function(u){ existingIds[u.id] = true; });
+            var newUsers = [];
+            var allowedRoles = ['admin','manager','user','team'];
+            var roleAliases = { 'tm':'team', 'team member':'team', 'employee':'user' };
             rows.forEach(function(row, idx){
                 if (idx === 0) return; // skip header
                 if (!row[0] || !row[1]) { skipped++; return; }
@@ -1260,19 +1185,60 @@ async function handleBulkUpload(input) {
                 var id = String(row[1]||'').trim().toLowerCase();
                 var password = String(row[2]||'').trim() || '1234';
                 var role = String(row[3]||'team').trim().toLowerCase();
-                var state = String(row[4]||'MP').trim();
+                role = roleAliases[role] || role;
+                var rawState = String(row[4]||'MP').trim();
+                var state = resolveStateId(rawState);
                 var district = String(row[5]||'').trim();
-                if (!name || !id || users.find(function(u){return u.id===id;})) { skipped++; return; }
-                users.push({id:id, password:password, name:name, role:role, state:state, district:district});
-                created++;
+                if (!name || !id || !state || !/^[a-z0-9._-]+$/.test(id) || existingIds[id] || allowedRoles.indexOf(role) === -1) {
+                    skipped++;
+                    return;
+                }
+                existingIds[id] = true;
+                newUsers.push({id:id, password:password, name:name, role:role, state:state, district:district});
             });
-            await saveUsers(users);
-            var resultDiv = document.getElementById('bulkResult');
-            if (resultDiv) resultDiv.innerHTML = '<span style="color:var(--success);"><i class="fas fa-check"></i> '+created+' users created</span>'+(skipped>0?' | <span style="color:var(--accent);">'+skipped+' skipped</span>':'');
-            showToast(created+' users created!','success');
-            input.value = '';
+            if (newUsers.length === 0) {
+                if (resultDiv) resultDiv.innerHTML = '<span style="color:var(--accent);">No valid new users found | '+skipped+' skipped</span>';
+                showToast('No valid new users found','error');
+                return;
+            }
+            await saveUsers(existingUsers.concat(newUsers));
+            var teamCardsUploaded = 0;
+            var teamCardFailures = 0;
+            for (var teamIndex = 0; teamIndex < newUsers.length; teamIndex++) {
+                var teamUser = newUsers[teamIndex];
+                if (teamUser.role !== 'team') continue;
+                try {
+                    await upsertPersonToSupabase({
+                        id: 'tm-' + teamUser.id,
+                        name: teamUser.name,
+                        role: 'TM',
+                        district: teamUser.district || '',
+                        attendance: '',
+                        lastUpdated: Date.now()
+                    }, teamUser.state || 'MP');
+                    teamCardsUploaded++;
+                } catch (teamCardError) {
+                    console.error('Team card upload failed:', teamCardError);
+                    teamCardFailures++;
+                }
+            }
+            await loadUsersFromSupabase();
+            await loadDataFromSupabase();
+            var uploadedIds = {};
+            getUsers().forEach(function(u){ uploadedIds[u.id] = true; });
+            var uploaded = newUsers.filter(function(u){ return uploadedIds[u.id]; }).length;
+            var notUploaded = newUsers.length - uploaded;
+            skipped += notUploaded;
+            if (resultDiv) resultDiv.innerHTML = '<span style="color:var(--success);"><i class="fas fa-cloud-upload-alt"></i> '+uploaded+' users uploaded to Supabase</span>'+(teamCardsUploaded>0?' | <span style="color:var(--primary);">'+teamCardsUploaded+' team cards</span>':'')+(skipped+teamCardFailures>0?' | <span style="color:var(--accent);">'+(skipped+teamCardFailures)+' skipped</span>':'');
+            renderAdminPanel();
+            renderStateSection(currentState);
+            showToast(uploaded+' users uploaded to cloud!','success');
         } catch(err) {
-            showToast('Excel error: '+err.message,'error');
+            console.error('Bulk user upload failed:', err);
+            if (resultDiv) resultDiv.innerHTML = '<span style="color:var(--danger);"><i class="fas fa-times-circle"></i> Upload failed: '+err.message+'</span>';
+            showToast('Upload failed: '+err.message,'error');
+        } finally {
+            input.value = '';
         }
     };
     reader.readAsArrayBuffer(file);
@@ -1283,6 +1249,7 @@ async function handleBulkTeamUpload(input) {
     var file = input.files[0];
     if (!file) return;
     if (!window.XLSX) { showToast('Excel library loading...','error'); return; }
+    if (!isSupabaseReady) { showToast('Cloud connection unavailable. Try again online.','error'); return; }
     var state = document.getElementById('bulkTeamState') ? document.getElementById('bulkTeamState').value : currentState;
     var reader = new FileReader();
     reader.onload = async function(e){
@@ -1292,6 +1259,7 @@ async function handleBulkTeamUpload(input) {
             var firstSheet = workbook.Sheets[workbook.SheetNames[0]];
             var rows = window.XLSX.utils.sheet_to_json(firstSheet, {header:1});
             var skipped = 0, created = 0;
+            var newPersons = [];
             rows.forEach(function(row, idx){
                 if (idx === 0) return; // skip header
                 if (!row[0]) { skipped++; return; }
@@ -1302,7 +1270,7 @@ async function handleBulkTeamUpload(input) {
                 var teamId = 'tm-' + name.toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9-]/g,'') + '-' + Date.now() + '-' + idx;
                 // Parse numeric helper
                 var n = function(v) { var val = parseFloat(v); return isNaN(val) ? 0 : val; };
-                dataStore[state].persons.push({
+                var newPerson = {
                     id: teamId, name: name, role: 'TM', district: district, attendance: '',
                     ureaQty:0, ureaAmt:0, dapQty:0, dapAmt:0, seedsQty:0, seedsAmt:0, pestiQty:0, pestiAmt:0, fertQty:0, fertAmt:0,
                     // Sales & Collection
@@ -1327,19 +1295,26 @@ async function handleBulkTeamUpload(input) {
                     // Today plans (all zero initially)
                     todayPlanFarmerContact: 0, todayPlanGfm: 0, todayPlanOfm: 0, todayPlanNightHalt: 0, todayPlanDilutionTest: 0,
                     todayPlanDemos: 0, todayPlanFieldVisit: 0, todayPlanFieldDay: 0, todayPlanDealerAppointment: 0, todayPlanDealerAppointed: 0
-                });
+                };
+                dataStore[state].persons.push(newPerson);
+                newPersons.push(newPerson);
                 created++;
             });
-            saveData();
-            if (isSupabaseReady) {
-                for (var i = 0; i < dataStore[state].persons.length; i++) {
-                    var p = dataStore[state].persons[i];
-                    await upsertPersonToSupabase(p, state).catch(function(e){});
+            var uploaded = 0, failed = 0;
+            for (var i = 0; i < newPersons.length; i++) {
+                try {
+                    await upsertPersonToSupabase(newPersons[i], state);
+                    uploaded++;
+                } catch (uploadError) {
+                    console.error('Team upload row failed:', uploadError);
+                    failed++;
                 }
             }
+            await loadDataFromSupabase();
             var resultDiv = document.getElementById('bulkTeamResult');
-            if (resultDiv) resultDiv.innerHTML = '<span style="color:var(--success);"><i class="fas fa-check"></i> ' + created + ' team members added to ' + (stateNames[state] || state) + '</span>' + (skipped > 0 ? ' | <span style="color:var(--accent);">' + skipped + ' skipped</span>' : '');
-            showToast(created + ' team members added to ' + (stateNames[state] || state) + '!', 'success');
+            skipped += failed;
+            if (resultDiv) resultDiv.innerHTML = '<span style="color:var(--success);"><i class="fas fa-cloud-upload-alt"></i> ' + uploaded + ' team members uploaded to Supabase</span>' + (skipped > 0 ? ' | <span style="color:var(--accent);">' + skipped + ' skipped</span>' : '');
+            showToast(uploaded + ' team members uploaded to cloud!', 'success');
             input.value = '';
             renderStateSection(state);
         } catch(err) {
@@ -1430,7 +1405,6 @@ function renderAdminPanel() {
             '</div>';
         list.appendChild(item);
     });
-    renderBackupList();
 }
 
 async function handleAddUser(e) {
@@ -1442,7 +1416,7 @@ async function handleAddUser(e) {
     const state = document.getElementById('newUserState').value;
     const district = document.getElementById('newUserDistrict').value.trim();
 
-    const users = getUsers();
+    const users = getUsers().slice();
     if (users.find(u => u.id === id)) {
         showToast('This ID is already used! Please choose a different ID.', 'error');
         return;
@@ -1452,7 +1426,12 @@ async function handleAddUser(e) {
     var newUser = { id, password, name, role, state, district };
     if (managerId) newUser.manager = managerId;
     users.push(newUser);
-    await saveUsers(users);
+    try {
+        await saveUsers(users);
+    } catch (err) {
+        showToast('Cloud user save failed: ' + err.message, 'error');
+        return;
+    }
 
     // If role is 'team', also add to leaderboard dataStore
     if (role === 'team') {
@@ -1483,7 +1462,6 @@ async function handleAddUser(e) {
                 todayPlanFarmerContact: 0, todayPlanGfm: 0, todayPlanOfm: 0, todayPlanNightHalt: 0, todayPlanDilutionTest: 0,
                 todayPlanDemos: 0, todayPlanFieldVisit: 0, todayPlanFieldDay: 0, todayPlanDealerAppointment: 0, todayPlanDealerAppointed: 0
             });
-            saveData();
             if (isSupabaseReady) {
                 var newPerson = dataStore[state].persons[dataStore[state].persons.length - 1];
                 await upsertPersonToSupabase(newPerson, state);
@@ -1496,13 +1474,6 @@ async function handleAddUser(e) {
         }
     }
 
-    if (isSupabaseReady) {
-        await sb.from('app_users').insert({
-            user_id: id, password: password, name: name,
-            role: role, state: state, district: district,
-            manager_id: managerId || null
-        });
-    }
     renderAdminPanel();
     showToast('User created: ' + name, 'success');
     e.target.reset();
@@ -1515,12 +1486,21 @@ async function deleteUser(userId) {
     }
     if (!confirm('Delete user ' + userId + '?')) return;
 
-    const users = getUsers().filter(u => u.id !== userId);
-    await saveUsers(users);
-    if (isSupabaseReady) {
-        await sb.from('app_users').delete().eq('user_id', userId);
+    if (!isSupabaseReady) {
+        showToast('Cloud connection unavailable. Try again online.', 'error');
+        return;
     }
+    var { error: userDeleteError } = await sb.from('app_users').delete().eq('user_id', userId);
+    if (userDeleteError) {
+        showToast('Delete failed: ' + userDeleteError.message, 'error');
+        return;
+    }
+    var { error: personDeleteError } = await sb.from('team_persons').delete().eq('person_id', 'tm-' + userId);
+    if (personDeleteError) console.error('Linked team card delete failed:', personDeleteError);
+    await loadUsersFromSupabase();
+    await loadDataFromSupabase();
     renderAdminPanel();
+    renderStateSection(currentState);
     showToast('User deleted!', 'success');
 }
 
@@ -1558,112 +1538,6 @@ async function renameUser(userId) {
     renderAdminPanel();
     if (currentView === 'state') renderStateSection(currentState);
     showToast('Renamed to: ' + trimmedName, 'success');
-}
-
-// ==================== BACKUP & RECOVERY ====================
-function getBackupKey(ts) { return 'bizsetu_backup_' + ts; }
-function getBackupListKey() { return 'bizsetu_backupList'; }
-
-function createBackupNow() {
-    var ts = Date.now();
-    var backup = {
-        timestamp: ts,
-        dateStr: new Date(ts).toLocaleString('en-IN'),
-        dataStore: JSON.parse(JSON.stringify(dataStore)),
-        stateNames: JSON.parse(JSON.stringify(stateNames)),
-        states: JSON.parse(JSON.stringify(states)),
-        users: JSON.parse(JSON.stringify(getUsers()))
-    };
-    localStorage.setItem(getBackupKey(ts), JSON.stringify(backup));
-    var list = JSON.parse(localStorage.getItem(getBackupListKey()) || '[]');
-    list.unshift({timestamp: ts, dateStr: backup.dateStr});
-    if (list.length > 48) {
-        var removed = list.splice(48);
-        removed.forEach(function(r) { localStorage.removeItem(getBackupKey(r.timestamp)); });
-    }
-    localStorage.setItem(getBackupListKey(), JSON.stringify(list));
-    localStorage.setItem('bizsetu_lastBackup', String(ts));
-    renderBackupList();
-    showToast('Backup created: ' + backup.dateStr, 'success');
-}
-
-function runAutoBackup() {
-    var lastBackup = localStorage.getItem('bizsetu_lastBackup');
-    var now = Date.now();
-    var oneHour = 60 * 60 * 1000;
-    if (!lastBackup || (now - parseInt(lastBackup)) > oneHour) {
-        createBackupNow();
-        console.log('Auto hourly backup created');
-    }
-}
-
-function getBackups() {
-    return JSON.parse(localStorage.getItem(getBackupListKey()) || '[]');
-}
-
-function restoreBackup(timestamp) {
-    if (!confirm('Restore data from backup?\n\nThis will REPLACE all current data.\nTimestamp: ' + new Date(parseInt(timestamp)).toLocaleString('en-IN'))) return;
-    var key = getBackupKey(timestamp);
-    var saved = localStorage.getItem(key);
-    if (!saved) { showToast('Backup not found!', 'error'); return; }
-    try {
-        var backup = JSON.parse(saved);
-        dataStore = backup.dataStore;
-        stateNames = backup.stateNames;
-        states = backup.states;
-        localStorage.setItem('bizsetu_data_v6', JSON.stringify(dataStore));
-        localStorage.setItem('bizsetu_stateNames', JSON.stringify(stateNames));
-        localStorage.setItem('bizsetu_states', JSON.stringify(states));
-        localStorage.setItem('bizsetu_users', JSON.stringify(backup.users));
-        saveData();
-        renderStateSection(currentState);
-        renderAdminPanel();
-        rebuildStateTabs();
-        showToast('Data restored from backup!', 'success');
-    } catch(e) {
-        showToast('Restore failed: ' + e.message, 'error');
-    }
-}
-
-function deleteBackup(timestamp) {
-    if (!confirm('Delete this backup?')) return;
-    localStorage.removeItem(getBackupKey(timestamp));
-    var list = getBackups().filter(function(b) { return b.timestamp != timestamp; });
-    localStorage.setItem(getBackupListKey(), JSON.stringify(list));
-    renderBackupList();
-    showToast('Backup deleted', 'info');
-}
-
-function renderBackupList() {
-    var container = document.getElementById('backupList');
-    var statusDiv = document.getElementById('backupStatus');
-    if (!container) return;
-    var backups = getBackups();
-    var lastBackup = localStorage.getItem('bizsetu_lastBackup');
-    if (lastBackup && statusDiv) {
-        var ago = Math.round((Date.now() - parseInt(lastBackup)) / 60000);
-        statusDiv.innerHTML = '<i class="fas fa-clock"></i> Last backup: ' + (ago < 60 ? ago + ' min ago' : Math.round(ago/60) + ' hr ago') + ' | Total: ' + backups.length + ' backups';
-    }
-    if (backups.length === 0) {
-        container.innerHTML = '<div style="text-align:center;color:var(--text-light);font-size:12px;padding:12px;">No backups yet.<br>Click "Backup Now" to create first backup.</div>';
-        return;
-    }
-    container.innerHTML = '';
-    backups.slice(0, 10).forEach(function(b) {
-        var item = document.createElement('div');
-        item.className = 'user-item';
-        item.innerHTML =
-            '<div class="user-item-avatar" style="background:linear-gradient(135deg,#059669,#10b981);font-size:11px;"><i class="fas fa-archive"></i></div>' +
-            '<div class="user-item-info">' +
-                '<div class="user-item-name">' + b.dateStr + '</div>' +
-                '<div class="user-item-detail">Auto hourly backup</div>' +
-            '</div>' +
-            '<div class="user-item-actions">' +
-                '<button class="user-item-btn" onclick="restoreBackup(' + b.timestamp + ')" style="margin-right:4px;background:rgba(79,70,229,0.08);color:var(--primary);"><i class="fas fa-undo"></i> Restore</button>' +
-                '<button class="user-item-btn" onclick="deleteBackup(' + b.timestamp + ')"><i class="fas fa-trash"></i></button>' +
-            '</div>';
-        container.appendChild(item);
-    });
 }
 
 // ==================== VIEW PERMISSIONS ====================
@@ -1971,97 +1845,20 @@ function generateDummyTeam(stateName) {
 }
 
 function initData() {
-    // FORCE: Always start with empty data - NO demo data EVER
+    // Business data is cloud-only. Preserve only login and UI preferences locally.
+    var allowedLocalKeys = [
+        'bizsetu_session', 'bizsetu_session_expiry',
+        'bizsetu_darkMode', 'bizsetu_lang', 'bizsetu_installDismissed'
+    ];
+    Object.keys(localStorage).forEach(function(key) {
+        if (key.indexOf('bizsetu_') === 0 && allowedLocalKeys.indexOf(key) === -1) {
+            localStorage.removeItem(key);
+        }
+    });
+    dataStore = {};
     states.forEach(state => {
         dataStore[state] = { persons: [] };
     });
-    // Clear any cached data from localStorage
-    localStorage.removeItem('bizsetu_data_v6');
-    // Sync empty state to Supabase
-    if (isSupabaseReady) {
-        for (var sk in dataStore) {
-            dataStore[sk].persons.forEach(function(p){
-                upsertPersonToSupabase(p, sk).catch(function(e){});
-            });
-        }
-    }
-    saveData();
-}
-function loadData() {
-    // Load dataStore
-    var savedData = localStorage.getItem('bizsetu_data_v6');
-    if (savedData) {
-        try { dataStore = JSON.parse(savedData); } catch(e) {}
-    }
-    // Load stateNames
-    var savedNames = localStorage.getItem('bizsetu_stateNames');
-    if (savedNames) {
-        try {
-            var parsedNames = JSON.parse(savedNames);
-            // Merge with defaults (keep custom names, add missing defaults)
-            states.forEach(function(s) {
-                if (parsedNames[s]) stateNames[s] = parsedNames[s];
-            });
-        } catch(e) {}
-    }
-    // Load states array (in case new states were added)
-    var savedStates = localStorage.getItem('bizsetu_states');
-    if (savedStates) {
-        try {
-            var parsedStates = JSON.parse(savedStates);
-            // Merge: add any states from saved that aren't in current
-            parsedStates.forEach(function(s) {
-                if (states.indexOf(s) === -1) states.push(s);
-            });
-        } catch(e) {}
-    }
-    // Ensure all states exist in dataStore
-    states.forEach(function(s) {
-        if (!dataStore[s]) dataStore[s] = { persons: [] };
-    });
-}
-
-function checkDateRollup() {
-    const lastDate = localStorage.getItem('bizsetu_lastDate');
-    const today = new Date().toDateString();
-    if (lastDate && lastDate !== today) {
-        // Date changed - migrate today's data to month
-        states.forEach(function(state) {
-            var persons = dataStore[state].persons;
-            persons.forEach(function(person) {
-                person.sales += (person.todaySales || 0);
-                person.collection += (person.todayCollection || 0);
-                person.planSales += (person.todayPlanSales || 0);
-                person.planCollection += (person.todayPlanCollection || 0);
-                ['FarmerContact','Gfm','Ofm','NightHalt','DilutionTest','Demos','FieldVisit','FieldDay','DealerAppointment','DealerAppointed'].forEach(function(f) {
-                    person[f] += (person['today'+f] || 0);
-                    person['plan'+f] += (person['todayPlan'+f] || 0);
-                });
-                // Reset today's figures
-                person.todaySales = 0; person.todayCollection = 0;
-                person.todayPlanSales = 0; person.todayPlanCollection = 0;
-                ['FarmerContact','Gfm','Ofm','NightHalt','DilutionTest','Demos','FieldVisit','FieldDay','DealerAppointment','DealerAppointed'].forEach(function(f) {
-                    person['today'+f] = 0; person['todayPlan'+f] = 0;
-                });
-            });
-        });
-        // Save monthly snapshot
-        saveMonthlySnapshot();
-        saveData();
-        showToast('Day changed! Today\'s data added to month.', 'success');
-    }
-    localStorage.setItem('bizsetu_lastDate', today);
-}
-
-function saveMonthlySnapshot() {
-    var monthKey = 'bizsetu_month_' + new Date().toISOString().slice(0,7); // YYYY-MM
-    var snapshot = {};
-    states.forEach(function(s) {
-        snapshot[s] = { persons: JSON.parse(JSON.stringify(dataStore[s].persons)) };
-    });
-    localStorage.setItem(monthKey, JSON.stringify(snapshot));
-    var months = JSON.parse(localStorage.getItem('bizsetu_months') || '[]');
-    if (months.indexOf(monthKey) === -1) { months.push(monthKey); localStorage.setItem('bizsetu_months', JSON.stringify(months)); }
 }
 
 function formatCurrency(amount) {
@@ -2355,25 +2152,9 @@ function switchView(view) {
         settingsHtml += '<div class="card" style="padding:16px;margin-bottom:12px;"><div style="font-size:16px;font-weight:700;margin-bottom:12px;color:var(--text)"><i class="fas fa-key" style="color:var(--primary);margin-right:6px;"></i>Change Password</div><form onsubmit="handleChangePassword(event)"><div style="display:flex;flex-direction:column;gap:10px;"><input type="password" class="form-input" id="changeCurrentPw" placeholder="Current Password" required><input type="password" class="form-input" id="changeNewPw" placeholder="New Password (min 4 chars)" required><input type="password" class="form-input" id="changeConfirmPw" placeholder="Confirm New Password" required><button type="submit" class="btn-primary"><i class="fas fa-save"></i> Update Password</button></div></form></div>';
         if (currentUser.role === 'admin') {
             settingsHtml += '<div class="card" style="padding:16px;margin-bottom:12px;"><div style="font-size:16px;font-weight:700;margin-bottom:12px;color:var(--text)"><i class="fas fa-shield-alt" style="color:var(--primary);margin-right:6px;"></i>Security Question Setup</div><form onsubmit="handleSecuritySetup(event)"><div style="display:flex;flex-direction:column;gap:10px;"><input type="text" class="form-input" id="setupSecurityQ" placeholder="Security Question (e.g. What is your company name?)" required style="margin-bottom:0;"><input type="text" class="form-input" id="setupSecurityA" placeholder="Security Answer (e.g. hsr)" required style="margin-bottom:0;"><button type="submit" class="btn-primary" style="margin-top:0;"><i class="fas fa-save"></i> Save Security Question</button></div></form></div>';
-            settingsHtml += '<div class="card" style="padding:16px;margin-bottom:12px;"><div style="font-size:16px;font-weight:700;margin-bottom:12px;color:var(--text)"><i class="fas fa-trash-alt" style="color:var(--danger);margin-right:6px;"></i>Clear Cache</div><p style="font-size:13px;color:var(--text-light);margin-bottom:12px;">Clear local cache to remove old demo data from this device.</p><button class="btn-danger" onclick="clearLocalCache()" style="margin-top:0;background:linear-gradient(135deg,#ef4444,#dc2626);"><i class="fas fa-broom"></i> Clear Local Cache</button></div>';
+            settingsHtml += '<div class="card" style="padding:16px;margin-bottom:12px;"><div style="font-size:16px;font-weight:700;margin-bottom:8px;color:var(--text)"><i class="fas fa-cloud" style="color:#10b981;margin-right:6px;"></i>Supabase Cloud Storage</div><p style="font-size:13px;color:var(--text-light);">Users, team members and leaderboard data are loaded only from Supabase. Old local demo data is removed automatically.</p></div>';
         }
         settingsHtml += '<div class="card" style="padding:16px;margin-bottom:12px;"><div style="font-size:16px;font-weight:700;margin-bottom:12px;color:var(--text)"><i class="fas fa-moon" style="color:var(--primary);margin-right:6px;"></i>Appearance</div><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;"><span style="font-size:14px;">Dark Mode</span><label class="toggle-switch" style="position:relative;display:inline-block;width:44px;height:24px;cursor:pointer;"><input type="checkbox" id="darkModeToggle" onchange="toggleDarkMode()" style="opacity:0;width:0;height:0;"><span style="position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:var(--border);border-radius:24px;transition:0.3s;"></span><span style="position:absolute;content:\'\';height:18px;width:18px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:0.3s;" id="darkModeKnob"></span></label></div><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);"><span style="font-size:14px;">Hindi / हिंदी</span><label class="toggle-switch" style="position:relative;display:inline-block;width:44px;height:24px;cursor:pointer;"><input type="checkbox" id="hindiToggle" onchange="toggleHindi()" style="opacity:0;width:0;height:0;"><span style="position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:var(--border);border-radius:24px;transition:0.3s;"></span><span style="position:absolute;content:\'\';height:18px;width:18px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:0.3s;" id="hindiKnob"></span></label></div></div>';
-        settingsHtml += '<div class="card" style="padding:16px;margin-bottom:12px;"><div style="font-size:16px;font-weight:700;margin-bottom:12px;color:var(--text)"><i class="fas fa-history" style="color:var(--primary);margin-right:6px;"></i>Monthly History</div><div id="historyList" style="max-height:200px;overflow-y:auto;"></div></div>';
-        // Populate history list after rendering
-        setTimeout(function(){
-            var hList = document.getElementById('historyList');
-            if(hList){
-                var months = JSON.parse(localStorage.getItem('bizsetu_months') || '[]');
-                if(months.length === 0){ hList.innerHTML = '<p style="font-size:13px;color:var(--text-light);">No monthly snapshots saved yet.</p>'; }
-                else {
-                    months.sort().reverse();
-                    hList.innerHTML = months.map(function(m){
-                        var monthLabel = m.replace('bizsetu_month_','');
-                        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px;border-bottom:1px solid var(--border);"><span style="font-size:13px;font-weight:600;">'+monthLabel+'</span><button class="btn-primary" style="width:auto;padding:6px 12px;font-size:11px;" onclick="downloadMonthSnapshot(\''+m+'\')"><i class="fas fa-download"></i> Excel</button></div>';
-                    }).join('');
-                }
-            }
-        },0);
         settingsHtml += '<div class="card" style="padding:16px;margin-bottom:12px;"><div style="font-size:16px;font-weight:700;margin-bottom:12px;color:var(--text)"><i class="fas fa-cog" style="color:var(--primary);margin-right:6px;"></i>Settings</div><button class="btn-danger" onclick="openSmartReset()" style="margin-top:0;background:linear-gradient(135deg,#ef4444,#dc2626);"><i class="fas fa-redo"></i> Reset Data</button><button id="installBtn" class="btn-primary" onclick="installApp()" style="margin-top:8px;display:none;background:linear-gradient(135deg,#059669,#10b981);width:100%;"><i class="fas fa-download"></i> Install App on Phone</button></div><div class="card" style="padding:16px;"><div style="font-size:12px;color:var(--text-light);line-height:1.5;"><div style="font-weight:700;color:var(--text);margin-bottom:6px;">About HSR Leader board Leaderboard</div><p>v1.0 - Live Sales & Collection & Activities Tracker</p><p>Features: Admin/User roles, State restrictions, Live data tracking</p><p style="margin-top:8px;">Logged in as: <strong>'+currentUser.name+'</strong> ('+currentUser.role+')</p></div></div></div>';
         document.getElementById('persons-container').innerHTML = settingsHtml;
     }
@@ -2611,29 +2392,6 @@ function executeSmartReset() {
     showToast(typeLabel + ' reset for ' + scopeLabel + '! (' + affectedMembers + ' members)', 'success');
 }
 
-function clearLocalCache() {
-    if (!confirm('DELETE ALL DATA on ALL DEVICES?\n\nThis will permanently remove all data from Supabase and reset the app everywhere.')) return;
-    // Clear localStorage
-    localStorage.clear();
-    // Reset dataStore to empty
-    states.forEach(state => {
-        dataStore[state] = { persons: [] };
-    });
-    saveData();
-    // Push empty data to Supabase
-    if (isSupabaseReady) {
-        for (var sk in dataStore) {
-            dataStore[sk].persons.forEach(function(p){
-                upsertPersonToSupabase(p, sk).catch(function(e){});
-            });
-        }
-    }
-    showToast('All data deleted from all devices! App will restart...', 'success');
-    setTimeout(() => {
-        window.location.href = window.location.href.split('?')[0] + '?reset=' + Date.now();
-    }, 1500);
-}
-
 async function handleSecuritySetup(e) {
     e.preventDefault();
     if (currentUser.role !== 'admin') {
@@ -2866,24 +2624,6 @@ function exportStateToExcel(state) {
     window.XLSX.utils.book_append_sheet(wb, ws, stateNames[state]);
     window.XLSX.writeFile(wb, 'StateActivities_' + stateNames[state] + '_' + new Date().toISOString().slice(0,10) + '.xlsx');
 }
-
-function downloadMonthSnapshot(monthKey) {
-    var snapshot = JSON.parse(localStorage.getItem(monthKey) || '{}');
-    if(!snapshot) { showToast('No data found!','error'); return; }
-    var allData = [['State','Name','District','Sales','Collection','Plan Sales','Plan Collection','Farmer Contact','GFM','OFM','Night Halt','Dilution Test','Demos','Field Visit','Field Day','Dealer Appointment','Dealer Appointed']];
-    states.forEach(function(s){
-        if(snapshot[s] && snapshot[s].persons){
-            snapshot[s].persons.forEach(function(p){
-                allData.push([stateNames[s]||s, p.name, p.district, p.sales||0, p.collection||0, p.planSales||0, p.planCollection||0, p.FarmerContact||0, p.Gfm||0, p.Ofm||0, p.NightHalt||0, p.DilutionTest||0, p.Demos||0, p.FieldVisit||0, p.FieldDay||0, p.DealerAppointment||0, p.DealerAppointed||0]);
-            });
-        }
-    });
-    var ws = window.XLSX.utils.aoa_to_sheet(allData);
-    var wb = window.XLSX.utils.book_new();
-    window.XLSX.utils.book_append_sheet(wb, ws, 'Snapshot');
-    window.XLSX.writeFile(wb, monthKey + '.xlsx');
-}
-
 
 // Initialize
 initData();
