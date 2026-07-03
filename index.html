@@ -849,6 +849,26 @@ async function saveData() {
     }
 }
 
+// Small UI/session cookies only. All business records remain in Supabase.
+function setAppCookie(name, value, days) {
+    var maxAge = Math.max(0, Math.floor(days * 24 * 60 * 60));
+    var secure = window.location.protocol === 'https:' ? '; Secure' : '';
+    document.cookie = name + '=' + encodeURIComponent(value) + '; Max-Age=' + maxAge + '; Path=/; SameSite=Lax' + secure;
+}
+
+function getAppCookie(name) {
+    var prefix = name + '=';
+    var parts = document.cookie ? document.cookie.split('; ') : [];
+    for (var i = 0; i < parts.length; i++) {
+        if (parts[i].indexOf(prefix) === 0) return decodeURIComponent(parts[i].substring(prefix.length));
+    }
+    return '';
+}
+
+function deleteAppCookie(name) {
+    setAppCookie(name, '', 0);
+}
+
 // ==================== I18N / TRANSLATIONS ====================
 var i18n = {
     en: {
@@ -898,13 +918,13 @@ var currentLang = 'en';
 function t(key) { return i18n[currentLang][key] || i18n.en[key] || key; }
 function toggleHindi() {
     currentLang = document.getElementById('hindiToggle').checked ? 'hi' : 'en';
-    localStorage.setItem('bizsetu_lang', currentLang);
+    setAppCookie('hsr_lang', currentLang, 365);
     if (currentView === 'state') renderStateSection(currentState);
     if (currentView === 'settings') switchView('settings');
     updateNavLabels();
 }
 function initLanguage() {
-    currentLang = localStorage.getItem('bizsetu_lang') || 'en';
+    currentLang = getAppCookie('hsr_lang') || 'en';
     var toggle = document.getElementById('hindiToggle');
     if (toggle) toggle.checked = (currentLang === 'hi');
 }
@@ -927,11 +947,12 @@ function updateNavLabels() {
 function toggleDarkMode() {
     var isDark = document.getElementById('darkModeToggle').checked;
     document.body.classList.toggle('dark-mode', isDark);
-    localStorage.setItem('bizsetu_darkMode', isDark ? '1' : '0');
+    setAppCookie('hsr_dark_mode', isDark ? '1' : '0', 365);
 }
 function initDarkMode() {
-    var saved = localStorage.getItem('bizsetu_darkMode') === '1';
-    document.getElementById('darkModeToggle').checked = saved;
+    var saved = getAppCookie('hsr_dark_mode') === '1';
+    var toggle = document.getElementById('darkModeToggle');
+    if (toggle) toggle.checked = saved;
     if (saved) document.body.classList.add('dark-mode');
 }
 
@@ -947,13 +968,13 @@ async function initAuth() {
     await loadUsersFromSupabase();
     await loadDataFromSupabase();
     // Restore session if exists (valid for 7 days)
-    const session = localStorage.getItem('bizsetu_session');
-    const sessionExpiry = localStorage.getItem('bizsetu_session_expiry');
+    const session = getAppCookie('hsr_session');
+    const sessionExpiry = getAppCookie('hsr_session_expiry');
     var sessionValid = true;
     if (sessionExpiry && Date.now() > parseInt(sessionExpiry)) {
         sessionValid = false;
-        localStorage.removeItem('bizsetu_session');
-        localStorage.removeItem('bizsetu_session_expiry');
+        deleteAppCookie('hsr_session');
+        deleteAppCookie('hsr_session_expiry');
     }
     if (session && sessionValid) {
         try {
@@ -973,13 +994,13 @@ async function initAuth() {
                 showMainApp();
                 console.log('Auto-login: cached session restored for ' + currentUser.name);
             } else {
-                localStorage.removeItem('bizsetu_session');
-                localStorage.removeItem('bizsetu_session_expiry');
+                deleteAppCookie('hsr_session');
+                deleteAppCookie('hsr_session_expiry');
                 currentUser = null;
             }
         } catch(e) { 
-            localStorage.removeItem('bizsetu_session');
-            localStorage.removeItem('bizsetu_session_expiry');
+            deleteAppCookie('hsr_session');
+            deleteAppCookie('hsr_session_expiry');
             currentUser = null; 
         }
     }
@@ -1050,8 +1071,8 @@ function handleLogin(e) {
     if (user) {
         currentUser = { ...user };
         delete currentUser.password; // Don't store password in session
-        localStorage.setItem('bizsetu_session', JSON.stringify(currentUser));
-        localStorage.setItem('bizsetu_session_expiry', String(Date.now() + 7 * 24 * 60 * 60 * 1000)); // 7 days
+        setAppCookie('hsr_session', JSON.stringify(currentUser), 7);
+        setAppCookie('hsr_session_expiry', String(Date.now() + 7 * 24 * 60 * 60 * 1000), 7);
         showMainApp();
         showToast('Welcome, ' + user.name + '!', 'success');
     } else {
@@ -1068,8 +1089,8 @@ function showAdminLogin() {
 
 function logout() {
     currentUser = null;
-    localStorage.removeItem('bizsetu_session');
-    localStorage.removeItem('bizsetu_session_expiry');
+    deleteAppCookie('hsr_session');
+    deleteAppCookie('hsr_session_expiry');
     document.getElementById('loginScreen').style.display = 'flex';
     document.getElementById('mainApp').style.display = 'none';
     document.getElementById('loginForm').reset();
@@ -1158,9 +1179,125 @@ function resolveStateId(rawState) {
     }) || null;
 }
 
+function normalizeExcelHeader(value) {
+    return String(value || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function sheetToNormalizedRecords(sheet) {
+    var rows = window.XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    if (rows.length < 2) return [];
+    var headers = rows[0].map(normalizeExcelHeader);
+    return rows.slice(1).map(function(row, index) {
+        var record = { __row: index + 2 };
+        headers.forEach(function(header, columnIndex) {
+            if (header) record[header] = row[columnIndex];
+        });
+        return record;
+    }).filter(function(record) {
+        return Object.keys(record).some(function(key) { return key !== '__row' && String(record[key]).trim() !== ''; });
+    });
+}
+
+function excelValue(record, aliases, fallback) {
+    for (var i = 0; i < aliases.length; i++) {
+        var key = normalizeExcelHeader(aliases[i]);
+        if (record[key] !== undefined && record[key] !== null && String(record[key]).trim() !== '') return record[key];
+    }
+    return fallback;
+}
+
+function excelNumber(record, aliases) {
+    var value = parseFloat(excelValue(record, aliases, 0));
+    return isNaN(value) ? 0 : value;
+}
+
+function downloadExcelTemplate(fileName, sheetName, headers, guideRows) {
+    if (!window.XLSX) { showToast('Excel library loading... Please try again.', 'error'); return; }
+    var workbook = window.XLSX.utils.book_new();
+    var dataSheet = window.XLSX.utils.aoa_to_sheet([headers]);
+    dataSheet['!cols'] = headers.map(function(header) { return { wch: Math.max(12, Math.min(24, header.length + 3)) }; });
+    window.XLSX.utils.book_append_sheet(workbook, dataSheet, sheetName);
+    var guideSheet = window.XLSX.utils.aoa_to_sheet(guideRows);
+    guideSheet['!cols'] = [{ wch: 24 }, { wch: 70 }];
+    window.XLSX.utils.book_append_sheet(workbook, guideSheet, 'Instructions');
+    window.XLSX.writeFile(workbook, fileName);
+}
+
+function downloadUsersTemplate() {
+    downloadExcelTemplate(
+        'HSR_Users_Supabase_Template.xlsx',
+        'Users',
+        ['Name', 'UserID', 'Password', 'Role', 'State', 'District'],
+        [
+            ['Field', 'How to fill'],
+            ['Name', 'Required. Full name of the user.'],
+            ['UserID', 'Required. Unique lowercase ID; letters, numbers, dot, underscore and hyphen only.'],
+            ['Password', 'Required. Minimum 4 characters.'],
+            ['Role', 'admin, manager, user or team. Use team for leaderboard members.'],
+            ['State', 'State code or state name shown in the app, for example MP or Madhya Pradesh.'],
+            ['District', 'Optional district name.'],
+            ['Upload order', 'Upload this Users sheet first, then upload the Team Data sheet.']
+        ]
+    );
+}
+
+function downloadTeamDataTemplate() {
+    downloadExcelTemplate(
+        'HSR_Team_Data_Supabase_Template.xlsx',
+        'Team Data',
+        ['UserID','Name','State','District','Sales','Collection','TodaySales','TodayCollection','PlanSales','PlanCollection','TodayPlanSales','TodayPlanCollection','FarmerAct','FarmerPlan','GFMAct','GFMPlan','OFMAct','OFMPlan','NightAct','NightPlan','DilutionAct','DilutionPlan','DemosAct','DemosPlan','FieldVisitAct','FieldVisitPlan','FieldDayAct','FieldDayPlan','DealerApptAct','DealerApptPlan','DealerAppAct','DealerAppPlan'],
+        [
+            ['Field', 'How to fill'],
+            ['UserID', 'Required. Must match a user with Role=team already uploaded to Supabase.'],
+            ['Name', 'Required. Team member name.'],
+            ['State', 'Required. State code or exact state name shown in the app.'],
+            ['District', 'Optional district name.'],
+            ['Numbers', 'Blank activity, sales, collection and plan cells are uploaded as 0.'],
+            ['Upload order', 'First upload Users, then upload this Team Data sheet.']
+        ]
+    );
+}
+
+function writeExcelRows(fileName, sheetName, headers, rows) {
+    if (!window.XLSX) { showToast('Excel library loading... Please try again.', 'error'); return; }
+    var workbook = window.XLSX.utils.book_new();
+    var sheet = window.XLSX.utils.aoa_to_sheet([headers].concat(rows));
+    sheet['!cols'] = headers.map(function(header) { return { wch: Math.max(12, Math.min(24, header.length + 3)) }; });
+    window.XLSX.utils.book_append_sheet(workbook, sheet, sheetName);
+    window.XLSX.writeFile(workbook, fileName);
+}
+
+async function exportSupabaseUsersExcel() {
+    if (!currentUser || currentUser.role !== 'admin' || !isSupabaseReady) { showToast('Admin cloud access required.', 'error'); return; }
+    await loadUsersFromSupabase();
+    var headers = ['Name','UserID','Password','Role','State','District'];
+    var rows = getUsers().map(function(user) {
+        return [user.name, user.id, '', user.role, user.state || '', user.district || ''];
+    });
+    writeExcelRows('HSR_Supabase_Users_' + new Date().toISOString().slice(0,10) + '.xlsx', 'Users', headers, rows);
+    showToast('Supabase users exported. Passwords are intentionally blank.', 'success');
+}
+
+async function exportSupabaseTeamDataExcel() {
+    if (!currentUser || currentUser.role !== 'admin' || !isSupabaseReady) { showToast('Admin cloud access required.', 'error'); return; }
+    await loadUsersFromSupabase();
+    await loadDataFromSupabase();
+    var headers = ['UserID','Name','State','District','Sales','Collection','TodaySales','TodayCollection','PlanSales','PlanCollection','TodayPlanSales','TodayPlanCollection','FarmerAct','FarmerPlan','GFMAct','GFMPlan','OFMAct','OFMPlan','NightAct','NightPlan','DilutionAct','DilutionPlan','DemosAct','DemosPlan','FieldVisitAct','FieldVisitPlan','FieldDayAct','FieldDayPlan','DealerApptAct','DealerApptPlan','DealerAppAct','DealerAppPlan'];
+    var rows = [];
+    states.forEach(function(state) {
+        (dataStore[state] ? dataStore[state].persons : []).forEach(function(person) {
+            var userId = String(person.id || '').indexOf('tm-') === 0 ? String(person.id).substring(3) : '';
+            rows.push([userId,person.name,state,person.district||'',person.sales||0,person.collection||0,person.todaySales||0,person.todayCollection||0,person.planSales||0,person.planCollection||0,person.todayPlanSales||0,person.todayPlanCollection||0,person.farmerContact||0,person.planFarmerContact||0,person.gfm||0,person.planGfm||0,person.ofm||0,person.planOfm||0,person.nightHalt||0,person.planNightHalt||0,person.dilutionTest||0,person.planDilutionTest||0,person.demos||0,person.planDemos||0,person.fieldVisit||0,person.planFieldVisit||0,person.fieldDay||0,person.planFieldDay||0,person.dealerAppointment||0,person.planDealerAppointment||0,person.dealerAppointed||0,person.planDealerAppointed||0]);
+        });
+    });
+    writeExcelRows('HSR_Supabase_Team_Data_' + new Date().toISOString().slice(0,10) + '.xlsx', 'Team Data', headers, rows);
+    showToast(rows.length + ' Supabase team rows exported.', 'success');
+}
+
 async function handleBulkUpload(input) {
     var file = input.files[0];
     if (!file) return;
+    if (!currentUser || currentUser.role !== 'admin') { showToast('Admin only!', 'error'); input.value = ''; return; }
     if (!window.XLSX) { showToast('Excel library loading...','error'); return; }
     if (!isSupabaseReady) { showToast('Cloud connection unavailable. Try again online.','error'); return; }
     var reader = new FileReader();
@@ -1170,7 +1307,7 @@ async function handleBulkUpload(input) {
             var data = new Uint8Array(e.target.result);
             var workbook = window.XLSX.read(data, {type:'array'});
             var firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-            var rows = window.XLSX.utils.sheet_to_json(firstSheet, {header:1});
+            var rows = sheetToNormalizedRecords(firstSheet);
             var skipped = 0;
             var existingUsers = getUsers().slice();
             var existingIds = {};
@@ -1178,18 +1315,16 @@ async function handleBulkUpload(input) {
             var newUsers = [];
             var allowedRoles = ['admin','manager','user','team'];
             var roleAliases = { 'tm':'team', 'team member':'team', 'employee':'user' };
-            rows.forEach(function(row, idx){
-                if (idx === 0) return; // skip header
-                if (!row[0] || !row[1]) { skipped++; return; }
-                var name = String(row[0]||'').trim();
-                var id = String(row[1]||'').trim().toLowerCase();
-                var password = String(row[2]||'').trim() || '1234';
-                var role = String(row[3]||'team').trim().toLowerCase();
+            rows.forEach(function(row){
+                var name = String(excelValue(row, ['Name'], '')).trim();
+                var id = String(excelValue(row, ['UserID', 'User ID', 'ID'], '')).trim().toLowerCase();
+                var password = String(excelValue(row, ['Password'], '')).trim();
+                var role = String(excelValue(row, ['Role'], 'team')).trim().toLowerCase();
                 role = roleAliases[role] || role;
-                var rawState = String(row[4]||'MP').trim();
+                var rawState = String(excelValue(row, ['State', 'StateCode'], 'MP')).trim();
                 var state = resolveStateId(rawState);
-                var district = String(row[5]||'').trim();
-                if (!name || !id || !state || !/^[a-z0-9._-]+$/.test(id) || existingIds[id] || allowedRoles.indexOf(role) === -1) {
+                var district = String(excelValue(row, ['District'], '')).trim();
+                if (!name || !id || password.length < 4 || !state || !/^[a-z0-9._-]+$/.test(id) || existingIds[id] || allowedRoles.indexOf(role) === -1) {
                     skipped++;
                     return;
                 }
@@ -1229,7 +1364,7 @@ async function handleBulkUpload(input) {
             var uploaded = newUsers.filter(function(u){ return uploadedIds[u.id]; }).length;
             var notUploaded = newUsers.length - uploaded;
             skipped += notUploaded;
-            if (resultDiv) resultDiv.innerHTML = '<span style="color:var(--success);"><i class="fas fa-cloud-upload-alt"></i> '+uploaded+' users uploaded to Supabase</span>'+(teamCardsUploaded>0?' | <span style="color:var(--primary);">'+teamCardsUploaded+' team cards</span>':'')+(skipped+teamCardFailures>0?' | <span style="color:var(--accent);">'+(skipped+teamCardFailures)+' skipped</span>':'');
+            if (resultDiv) resultDiv.innerHTML = '<span style="color:var(--success);"><i class="fas fa-cloud-upload-alt"></i> '+uploaded+' users uploaded to Supabase</span>'+(teamCardsUploaded>0?' | <span style="color:var(--primary);">'+teamCardsUploaded+' team cards</span>':'')+(skipped+teamCardFailures>0?' | <span style="color:var(--accent);">'+(skipped+teamCardFailures)+' skipped/failed</span>':'');
             renderAdminPanel();
             renderStateSection(currentState);
             showToast(uploaded+' users uploaded to cloud!','success');
@@ -1250,60 +1385,57 @@ async function handleBulkTeamUpload(input) {
     if (!file) return;
     if (!window.XLSX) { showToast('Excel library loading...','error'); return; }
     if (!isSupabaseReady) { showToast('Cloud connection unavailable. Try again online.','error'); return; }
-    var state = document.getElementById('bulkTeamState') ? document.getElementById('bulkTeamState').value : currentState;
+    if (!currentUser || currentUser.role !== 'admin') { showToast('Admin only!', 'error'); input.value = ''; return; }
+    var fallbackState = document.getElementById('bulkTeamState') ? document.getElementById('bulkTeamState').value : currentState;
     var reader = new FileReader();
     reader.onload = async function(e){
         try {
             var data = new Uint8Array(e.target.result);
             var workbook = window.XLSX.read(data, {type:'array'});
             var firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-            var rows = window.XLSX.utils.sheet_to_json(firstSheet, {header:1});
-            var skipped = 0, created = 0;
+            var rows = sheetToNormalizedRecords(firstSheet);
+            var skipped = 0;
             var newPersons = [];
-            rows.forEach(function(row, idx){
-                if (idx === 0) return; // skip header
-                if (!row[0]) { skipped++; return; }
-                var name = String(row[0]||'').trim();
-                var district = String(row[1]||'').trim() || 'District';
-                if (!name) { skipped++; return; }
-                if (!dataStore[state]) dataStore[state] = { persons: [] };
-                var teamId = 'tm-' + name.toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9-]/g,'') + '-' + Date.now() + '-' + idx;
-                // Parse numeric helper
-                var n = function(v) { var val = parseFloat(v); return isNaN(val) ? 0 : val; };
+            var usersById = {};
+            getUsers().forEach(function(user) { usersById[user.id] = user; });
+            rows.forEach(function(row){
+                var userId = String(excelValue(row, ['UserID', 'User ID', 'ID'], '')).trim().toLowerCase();
+                var linkedUser = usersById[userId];
+                var name = String(excelValue(row, ['Name'], linkedUser ? linkedUser.name : '')).trim();
+                var state = resolveStateId(excelValue(row, ['State', 'StateCode'], linkedUser ? linkedUser.state : fallbackState));
+                var district = String(excelValue(row, ['District'], linkedUser ? linkedUser.district : '')).trim();
+                if (!userId || !name || !state || !linkedUser || linkedUser.role !== 'team') { skipped++; return; }
                 var newPerson = {
-                    id: teamId, name: name, role: 'TM', district: district, attendance: '',
+                    id: 'tm-' + userId, name: name, role: 'TM', district: district, attendance: '',
                     ureaQty:0, ureaAmt:0, dapQty:0, dapAmt:0, seedsQty:0, seedsAmt:0, pestiQty:0, pestiAmt:0, fertQty:0, fertAmt:0,
-                    // Sales & Collection
-                    sales: n(row[2]), collection: n(row[3]),
-                    todaySales: n(row[4]), todayCollection: n(row[5]),
-                    planSales: n(row[6]), planCollection: n(row[7]),
-                    todayPlanSales: 0, todayPlanCollection: 0,
-                    // Activities: Actual (month) + Plan (month)
-                    farmerContact: n(row[8]),  planFarmerContact: n(row[9]),
-                    gfm: n(row[10]),          planGfm: n(row[11]),
-                    ofm: n(row[12]),          planOfm: n(row[13]),
-                    nightHalt: n(row[14]),    planNightHalt: n(row[15]),
-                    dilutionTest: n(row[16]), planDilutionTest: n(row[17]),
-                    demos: n(row[18]),        planDemos: n(row[19]),
-                    fieldVisit: n(row[20]),   planFieldVisit: n(row[21]),
-                    fieldDay: n(row[22]),     planFieldDay: n(row[23]),
-                    dealerAppointment: n(row[24]), planDealerAppointment: n(row[25]),
-                    dealerAppointed: n(row[26]),   planDealerAppointed: n(row[27]),
-                    // Today actuals (all zero initially)
+                    sales: excelNumber(row, ['Sales']), collection: excelNumber(row, ['Collection']),
+                    todaySales: excelNumber(row, ['TodaySales']), todayCollection: excelNumber(row, ['TodayCollection']),
+                    planSales: excelNumber(row, ['PlanSales']), planCollection: excelNumber(row, ['PlanCollection']),
+                    todayPlanSales: excelNumber(row, ['TodayPlanSales']), todayPlanCollection: excelNumber(row, ['TodayPlanCollection']),
+                    farmerContact: excelNumber(row, ['FarmerAct','FarmerContact']), planFarmerContact: excelNumber(row, ['FarmerPlan','PlanFarmerContact']),
+                    gfm: excelNumber(row, ['GFMAct','GFM']), planGfm: excelNumber(row, ['GFMPlan','PlanGFM']),
+                    ofm: excelNumber(row, ['OFMAct','OFM']), planOfm: excelNumber(row, ['OFMPlan','PlanOFM']),
+                    nightHalt: excelNumber(row, ['NightAct','NightHalt']), planNightHalt: excelNumber(row, ['NightPlan','PlanNightHalt']),
+                    dilutionTest: excelNumber(row, ['DilutionAct','DilutionTest']), planDilutionTest: excelNumber(row, ['DilutionPlan','PlanDilutionTest']),
+                    demos: excelNumber(row, ['DemosAct','Demos']), planDemos: excelNumber(row, ['DemosPlan','PlanDemos']),
+                    fieldVisit: excelNumber(row, ['FieldVisitAct','FieldVisit']), planFieldVisit: excelNumber(row, ['FieldVisitPlan','PlanFieldVisit']),
+                    fieldDay: excelNumber(row, ['FieldDayAct','FieldDay']), planFieldDay: excelNumber(row, ['FieldDayPlan','PlanFieldDay']),
+                    dealerAppointment: excelNumber(row, ['DealerApptAct','DealerAppointment']), planDealerAppointment: excelNumber(row, ['DealerApptPlan','PlanDealerAppointment']),
+                    dealerAppointed: excelNumber(row, ['DealerAppAct','DealerAppointed']), planDealerAppointed: excelNumber(row, ['DealerAppPlan','PlanDealerAppointed']),
                     todayFarmerContact: 0, todayGfm: 0, todayOfm: 0, todayNightHalt: 0, todayDilutionTest: 0,
                     todayDemos: 0, todayFieldVisit: 0, todayFieldDay: 0, todayDealerAppointment: 0, todayDealerAppointed: 0,
-                    // Today plans (all zero initially)
                     todayPlanFarmerContact: 0, todayPlanGfm: 0, todayPlanOfm: 0, todayPlanNightHalt: 0, todayPlanDilutionTest: 0,
-                    todayPlanDemos: 0, todayPlanFieldVisit: 0, todayPlanFieldDay: 0, todayPlanDealerAppointment: 0, todayPlanDealerAppointed: 0
+                    todayPlanDemos: 0, todayPlanFieldVisit: 0, todayPlanFieldDay: 0, todayPlanDealerAppointment: 0, todayPlanDealerAppointed: 0,
+                    lastUpdated: Date.now(), __state: state
                 };
-                dataStore[state].persons.push(newPerson);
                 newPersons.push(newPerson);
-                created++;
             });
             var uploaded = 0, failed = 0;
             for (var i = 0; i < newPersons.length; i++) {
                 try {
-                    await upsertPersonToSupabase(newPersons[i], state);
+                    var uploadState = newPersons[i].__state;
+                    delete newPersons[i].__state;
+                    await upsertPersonToSupabase(newPersons[i], uploadState);
                     uploaded++;
                 } catch (uploadError) {
                     console.error('Team upload row failed:', uploadError);
@@ -1313,12 +1445,16 @@ async function handleBulkTeamUpload(input) {
             await loadDataFromSupabase();
             var resultDiv = document.getElementById('bulkTeamResult');
             skipped += failed;
-            if (resultDiv) resultDiv.innerHTML = '<span style="color:var(--success);"><i class="fas fa-cloud-upload-alt"></i> ' + uploaded + ' team members uploaded to Supabase</span>' + (skipped > 0 ? ' | <span style="color:var(--accent);">' + skipped + ' skipped</span>' : '');
+            if (resultDiv) resultDiv.innerHTML = '<span style="color:var(--success);"><i class="fas fa-cloud-upload-alt"></i> ' + uploaded + ' team data rows uploaded to Supabase</span>' + (skipped > 0 ? ' | <span style="color:var(--accent);">' + skipped + ' skipped/failed</span>' : '');
             showToast(uploaded + ' team members uploaded to cloud!', 'success');
             input.value = '';
-            renderStateSection(state);
+            renderStateSection(currentState);
         } catch(err) {
-            showToast('Excel error: ' + err.message, 'error');
+            var resultDiv = document.getElementById('bulkTeamResult');
+            if (resultDiv) resultDiv.innerHTML = '<span style="color:var(--danger);"><i class="fas fa-times-circle"></i> Upload failed: ' + err.message + '</span>';
+            showToast('Excel upload error: ' + err.message, 'error');
+        } finally {
+            input.value = '';
         }
     };
     reader.readAsArrayBuffer(file);
@@ -1342,10 +1478,12 @@ function showMainApp() {
     document.getElementById('userRoleDisplay').innerHTML = 
         '<span class="role-badge ' + currentUser.role + '">' + currentUser.role + '</span>';
 
+    var fabAdd = document.getElementById('fabAdd');
+
     // Admin vs Manager vs User vs Team view
     if (currentUser.role === 'admin') {
         document.getElementById('adminPanel').style.display = currentView === 'state' ? 'block' : 'none';
-        document.getElementById('fabAdd').style.display = 'flex';
+        if (fabAdd) fabAdd.style.display = 'flex';
         document.getElementById('addUserTab').hidden = false;
         renderAdminPanel();
     } else if (currentUser.role === 'manager') {
@@ -1354,14 +1492,14 @@ function showMainApp() {
         currentState = currentUser.state || 'MP';
         // Manager can see state tabs and India view
         document.getElementById('stateTabs').style.display = 'flex';
-        document.getElementById('fabAdd').style.display = 'none';
+        if (fabAdd) fabAdd.style.display = 'none';
     } else if (currentUser.role === 'team') {
         document.getElementById('addUserTab').hidden = true;
         document.getElementById('adminPanel').style.display = 'none';
         // Team person can only see their assigned state
         currentState = currentUser.state || 'MP';
         document.getElementById('stateTabs').style.display = 'none';
-        document.getElementById('fabAdd').style.display = 'none';
+        if (fabAdd) fabAdd.style.display = 'none';
     } else {
         document.getElementById('addUserTab').hidden = true;
         document.getElementById('adminPanel').style.display = 'none';
@@ -1370,7 +1508,7 @@ function showMainApp() {
         // Hide state tabs for regular users (they only see their state)
         document.getElementById('stateTabs').style.display = 'none';
         // Only allow editing their own data
-        document.getElementById('fabAdd').style.display = 'none';
+        if (fabAdd) fabAdd.style.display = 'none';
     }
 
     initDarkMode();
@@ -1409,12 +1547,23 @@ function renderAdminPanel() {
 
 async function handleAddUser(e) {
     e.preventDefault();
+    if (!currentUser || currentUser.role !== 'admin') { showToast('Admin only!', 'error'); return; }
+    if (!isSupabaseReady) { showToast('Supabase connection unavailable. Try again online.', 'error'); return; }
     const name = document.getElementById('newUserName').value.trim();
     const id = document.getElementById('newUserId').value.trim().toLowerCase();
     const password = document.getElementById('newUserPassword').value;
     const role = document.getElementById('newUserRole').value;
     const state = document.getElementById('newUserState').value;
     const district = document.getElementById('newUserDistrict').value.trim();
+
+    if (!/^[a-z0-9._-]+$/.test(id)) {
+        showToast('User ID can use only letters, numbers, dot, underscore and hyphen.', 'error');
+        return;
+    }
+    if (password.length < 4) {
+        showToast('Password must be at least 4 characters.', 'error');
+        return;
+    }
 
     const users = getUsers().slice();
     if (users.find(u => u.id === id)) {
@@ -1433,19 +1582,13 @@ async function handleAddUser(e) {
         return;
     }
 
-    // If role is 'team', also add to leaderboard dataStore
+    // Team users receive one linked leaderboard row in Supabase.
     if (role === 'team') {
         try {
-            const teamRole = 'TM';
-            const teamName = name;
-            const teamId = 'tm-' + id;
-            if (!dataStore[state]) {
-                dataStore[state] = { persons: [] };
-            }
-            dataStore[state].persons.push({
-                id: teamId,
-                name: teamName,
-                role: teamRole,
+            await upsertPersonToSupabase({
+                id: 'tm-' + id,
+                name: name,
+                role: 'TM',
                 district: district || 'District',
                 attendance: '',
                 ureaQty:0, ureaAmt:0, dapQty:0, dapAmt:0, seedsQty:0, seedsAmt:0, pestiQty:0, pestiAmt:0, fertQty:0, fertAmt:0,
@@ -1460,21 +1603,22 @@ async function handleAddUser(e) {
                 planFarmerContact: 0, planGfm: 0, planOfm: 0, planNightHalt: 0, planDilutionTest: 0,
                 planDemos: 0, planFieldVisit: 0, planFieldDay: 0, planDealerAppointment: 0, planDealerAppointed: 0,
                 todayPlanFarmerContact: 0, todayPlanGfm: 0, todayPlanOfm: 0, todayPlanNightHalt: 0, todayPlanDilutionTest: 0,
-                todayPlanDemos: 0, todayPlanFieldVisit: 0, todayPlanFieldDay: 0, todayPlanDealerAppointment: 0, todayPlanDealerAppointed: 0
-            });
-            if (isSupabaseReady) {
-                var newPerson = dataStore[state].persons[dataStore[state].persons.length - 1];
-                await upsertPersonToSupabase(newPerson, state);
-            }
-            showToast('Team person added to leaderboard!', 'success');
-            if (currentView === 'state') renderStateSection(currentState);
-            else if (currentView === 'india') renderIndiaSection();
+                todayPlanDemos: 0, todayPlanFieldVisit: 0, todayPlanFieldDay: 0, todayPlanDealerAppointment: 0, todayPlanDealerAppointed: 0,
+                lastUpdated: Date.now()
+            }, state);
         } catch (err) {
-            showToast('Error adding team person: ' + err.message, 'error');
+            await sb.from('app_users').delete().eq('user_id', id);
+            await loadUsersFromSupabase();
+            await loadDataFromSupabase();
+            showToast('Team user creation failed: ' + err.message, 'error');
+            return;
         }
     }
 
+    await loadUsersFromSupabase();
+    await loadDataFromSupabase();
     renderAdminPanel();
+    renderStateSection(currentState);
     showToast('User created: ' + name, 'success');
     e.target.reset();
 }
@@ -1845,16 +1989,7 @@ function generateDummyTeam(stateName) {
 }
 
 function initData() {
-    // Business data is cloud-only. Preserve only login and UI preferences locally.
-    var allowedLocalKeys = [
-        'bizsetu_session', 'bizsetu_session_expiry',
-        'bizsetu_darkMode', 'bizsetu_lang', 'bizsetu_installDismissed'
-    ];
-    Object.keys(localStorage).forEach(function(key) {
-        if (key.indexOf('bizsetu_') === 0 && allowedLocalKeys.indexOf(key) === -1) {
-            localStorage.removeItem(key);
-        }
-    });
+    // In-memory shell only; Supabase is the sole business-data source.
     dataStore = {};
     states.forEach(state => {
         dataStore[state] = { persons: [] };
@@ -2132,14 +2267,14 @@ function switchView(view) {
         states.forEach(function(s) { stateOptions += '<option value="'+s+'"'+(s===currentState?' selected':'')+'>'+(stateNames[s]||s)+'</option>'; });
         
         let addUserHtml = '<div style="padding:16px;">';
-        addUserHtml += '<div class="card" style="padding:16px;margin-bottom:12px;"><div style="font-size:16px;font-weight:700;margin-bottom:12px;color:var(--text)"><i class="fas fa-user-plus" style="color:var(--primary);margin-right:6px;"></i>Add New User</div><form class="add-user-form" onsubmit="handleAddUser(event)"><input type="text" class="add-user-input" id="newUserName" placeholder="Full Name" required><input type="text" class="add-user-input" id="newUserId" placeholder="User ID" required><input type="password" class="add-user-input" id="newUserPassword" placeholder="Password" required><select class="add-user-select" id="newUserRole"><option value="team" selected>Team Person</option><option value="user">State Viewer</option><option value="manager">India Viewer</option><option value="admin">Admin</option></select><select class="add-user-select" id="newUserState"><option value="MP">Madhya Pradesh</option><option value="State1">State 1</option><option value="State2">State 2</option><option value="State3">State 3</option><option value="State4">State 4</option><option value="State5">State 5</option><option value="State6">State 6</option><option value="State7">State 7</option><option value="State8">State 8</option><option value="State9">State 9</option><option value="State10">State 10</option><option value="State11">State 11</option><option value="State12">State 12</option><option value="State13">State 13</option><option value="State14">State 14</option></select><input type="text" class="add-user-input" id="newUserDistrict" placeholder="District"><select class="add-user-select" id="newUserManager"><option value="">No Manager</option></select><button type="submit" class="add-user-btn"><i class="fas fa-plus"></i> Create User</button></form></div>';
+        addUserHtml += '<div class="card" style="padding:16px;margin-bottom:12px;"><div style="font-size:16px;font-weight:700;margin-bottom:12px;color:var(--text)"><i class="fas fa-user-plus" style="color:var(--primary);margin-right:6px;"></i>Add New User</div><div style="font-size:11px;color:var(--success);margin-bottom:10px;"><i class="fas fa-cloud"></i> Saves directly to Supabase</div><form class="add-user-form" onsubmit="handleAddUser(event)"><input type="text" class="add-user-input" id="newUserName" placeholder="Full Name" required><input type="text" class="add-user-input" id="newUserId" placeholder="User ID" required><input type="password" class="add-user-input" id="newUserPassword" placeholder="Password (minimum 4 characters)" minlength="4" required><select class="add-user-select" id="newUserRole"><option value="team" selected>Team Person</option><option value="user">State Viewer</option><option value="manager">India Viewer</option><option value="admin">Admin</option></select><select class="add-user-select" id="newUserState">'+stateOptions+'</select><input type="text" class="add-user-input" id="newUserDistrict" placeholder="District"><select class="add-user-select" id="newUserManager"><option value="">No Manager</option></select><button type="submit" class="add-user-btn"><i class="fas fa-cloud-upload-alt"></i> Create User in Supabase</button></form></div>';
         addUserHtml += '<div class="card" style="padding:16px;"><div style="font-size:16px;font-weight:700;margin-bottom:12px;color:var(--text);display:flex;align-items:center;gap:8px;"><i class="fas fa-map-marked-alt" style="color:var(--primary);"></i> Manage States <button class="user-item-btn" onclick="addNewState()" style="margin-left:auto;background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:#fff;border:none;"><i class="fas fa-plus"></i> Add State</button></div><div class="user-list" id="addUserStateList"></div></div>';
-        addUserHtml += '<div class="card" style="padding:16px;margin-top:12px;"><div style="font-size:16px;font-weight:700;margin-bottom:12px;color:var(--text)"><i class="fas fa-file-upload" style="color:var(--primary);margin-right:6px;"></i>'+t('bulkUpload')+'</div><div style="font-size:11px;color:var(--text-light);margin-bottom:8px;">Upload Excel with columns: Name, UserID, Password, Role, State, District</div><input type="file" id="bulkFile" accept=".xlsx,.xls,.csv" style="margin-bottom:8px;font-size:12px;" onchange="handleBulkUpload(this)"><div id="bulkResult" style="font-size:12px;margin-top:8px;"></div></div>';
+        addUserHtml += '<div class="card" style="padding:16px;margin-top:12px;border:2px solid rgba(16,185,129,0.18);"><div style="font-size:16px;font-weight:700;margin-bottom:8px;color:var(--text)"><i class="fas fa-users-cog" style="color:#10b981;margin-right:6px;"></i>1. Users Excel → Supabase</div><div style="font-size:11px;color:var(--text-light);margin-bottom:10px;line-height:1.5;">Required columns: <strong>Name, UserID, Password, Role, State</strong>. District is optional.</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;"><button type="button" class="user-item-btn" onclick="downloadUsersTemplate()" style="background:rgba(79,70,229,.1);color:var(--primary);"><i class="fas fa-download"></i> Download Template</button><button type="button" class="user-item-btn" onclick="exportSupabaseUsersExcel()"><i class="fas fa-file-export"></i> Export Cloud Users</button></div><input type="file" id="bulkFile" accept=".xlsx,.xls,.csv" style="width:100%;margin-bottom:8px;font-size:12px;" onchange="handleBulkUpload(this)"><div id="bulkResult" style="font-size:12px;margin-top:8px;"></div></div>';
         // --- BULK TEAM UPLOAD WITH ACTIVITIES ---
-        addUserHtml += '<div class="card" style="padding:16px;margin-top:12px;border:2px solid rgba(79,70,229,0.15);"><div style="font-size:16px;font-weight:700;margin-bottom:12px;color:var(--text);display:flex;align-items:center;gap:8px;"><i class="fas fa-users" style="color:var(--primary);"></i> Bulk Add Team Members <span style="font-size:10px;background:rgba(79,70,229,0.1);color:var(--primary);padding:2px 8px;border-radius:10px;">With Activities</span></div>';
+        addUserHtml += '<div class="card" style="padding:16px;margin-top:12px;border:2px solid rgba(79,70,229,0.15);"><div style="font-size:16px;font-weight:700;margin-bottom:8px;color:var(--text);display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><i class="fas fa-chart-line" style="color:var(--primary);"></i> 2. Team Data Excel → Supabase <span style="font-size:10px;background:rgba(79,70,229,0.1);color:var(--primary);padding:2px 8px;border-radius:10px;">UserID Linked</span></div>';
         addUserHtml += '<div style="font-size:11px;color:var(--text-light);margin-bottom:4px;">Select State:</div><select class="add-user-select" id="bulkTeamState" style="margin-bottom:10px;">'+stateOptions+'</select>';
-        addUserHtml += '<div style="font-size:11px;color:var(--text-light);margin-bottom:8px;line-height:1.6;">Upload Excel with columns:<br><strong style="color:var(--text);">A:Name, B:District, C:Sales, D:Collection, E:TodaySales, F:TodayCollection, G:PlanSales, H:PlanCollection</strong><br><strong style="color:var(--text);">I:FarmerAct, J:FarmerPlan, K:GFMAct, L:GFMPlan, M:OFMAct, N:OFMPlan, O:NightAct, P:NightPlan</strong><br><strong style="color:var(--text);">Q:DilutionAct, R:DilutionPlan, S:DemosAct, T:DemosPlan, U:FieldVisitAct, V:FieldVisitPlan</strong><br><strong style="color:var(--text);">W:FieldDayAct, X:FieldDayPlan, Y:DealerApptAct, Z:DealerApptPlan, AA:DealerAppAct, AB:DealerAppPlan</strong><br><span style="font-size:10px;">Only "Name" (Col A) is required. All activity columns have <strong>Act</strong> (Actual) + <strong>Plan</strong> pairs. Empty = 0.</span></div>';
-        addUserHtml += '<input type="file" id="bulkTeamFile" accept=".xlsx,.xls,.csv" style="margin-bottom:8px;font-size:12px;" onchange="handleBulkTeamUpload(this)">';
+        addUserHtml += '<div style="font-size:11px;color:var(--text-light);margin-bottom:8px;line-height:1.6;"><strong>UserID, Name and State are required.</strong> UserID must already exist as a Team Person from Step 1. Blank numeric cells upload as 0.</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;"><button type="button" class="user-item-btn" onclick="downloadTeamDataTemplate()" style="background:rgba(79,70,229,.1);color:var(--primary);"><i class="fas fa-download"></i> Download Template</button><button type="button" class="user-item-btn" onclick="exportSupabaseTeamDataExcel()"><i class="fas fa-file-export"></i> Export Cloud Team Data</button></div>';
+        addUserHtml += '<input type="file" id="bulkTeamFile" accept=".xlsx,.xls,.csv" style="width:100%;margin-bottom:8px;font-size:12px;" onchange="handleBulkTeamUpload(this)">';
         addUserHtml += '<div id="bulkTeamResult" style="font-size:12px;margin-top:8px;"></div></div>';
         addUserHtml += '</div>';
         document.getElementById('persons-container').innerHTML = addUserHtml;
@@ -2152,7 +2287,7 @@ function switchView(view) {
         settingsHtml += '<div class="card" style="padding:16px;margin-bottom:12px;"><div style="font-size:16px;font-weight:700;margin-bottom:12px;color:var(--text)"><i class="fas fa-key" style="color:var(--primary);margin-right:6px;"></i>Change Password</div><form onsubmit="handleChangePassword(event)"><div style="display:flex;flex-direction:column;gap:10px;"><input type="password" class="form-input" id="changeCurrentPw" placeholder="Current Password" required><input type="password" class="form-input" id="changeNewPw" placeholder="New Password (min 4 chars)" required><input type="password" class="form-input" id="changeConfirmPw" placeholder="Confirm New Password" required><button type="submit" class="btn-primary"><i class="fas fa-save"></i> Update Password</button></div></form></div>';
         if (currentUser.role === 'admin') {
             settingsHtml += '<div class="card" style="padding:16px;margin-bottom:12px;"><div style="font-size:16px;font-weight:700;margin-bottom:12px;color:var(--text)"><i class="fas fa-shield-alt" style="color:var(--primary);margin-right:6px;"></i>Security Question Setup</div><form onsubmit="handleSecuritySetup(event)"><div style="display:flex;flex-direction:column;gap:10px;"><input type="text" class="form-input" id="setupSecurityQ" placeholder="Security Question (e.g. What is your company name?)" required style="margin-bottom:0;"><input type="text" class="form-input" id="setupSecurityA" placeholder="Security Answer (e.g. hsr)" required style="margin-bottom:0;"><button type="submit" class="btn-primary" style="margin-top:0;"><i class="fas fa-save"></i> Save Security Question</button></div></form></div>';
-            settingsHtml += '<div class="card" style="padding:16px;margin-bottom:12px;"><div style="font-size:16px;font-weight:700;margin-bottom:8px;color:var(--text)"><i class="fas fa-cloud" style="color:#10b981;margin-right:6px;"></i>Supabase Cloud Storage</div><p style="font-size:13px;color:var(--text-light);">Users, team members and leaderboard data are loaded only from Supabase. Old local demo data is removed automatically.</p></div>';
+            settingsHtml += '<div class="card" style="padding:16px;margin-bottom:12px;"><div style="font-size:16px;font-weight:700;margin-bottom:8px;color:var(--text)"><i class="fas fa-cloud" style="color:#10b981;margin-right:6px;"></i>Supabase Cloud Storage</div><p style="font-size:13px;color:var(--text-light);">Users, team members and leaderboard data are loaded only from Supabase. No business data is stored on this device.</p></div>';
         }
         settingsHtml += '<div class="card" style="padding:16px;margin-bottom:12px;"><div style="font-size:16px;font-weight:700;margin-bottom:12px;color:var(--text)"><i class="fas fa-moon" style="color:var(--primary);margin-right:6px;"></i>Appearance</div><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;"><span style="font-size:14px;">Dark Mode</span><label class="toggle-switch" style="position:relative;display:inline-block;width:44px;height:24px;cursor:pointer;"><input type="checkbox" id="darkModeToggle" onchange="toggleDarkMode()" style="opacity:0;width:0;height:0;"><span style="position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:var(--border);border-radius:24px;transition:0.3s;"></span><span style="position:absolute;content:\'\';height:18px;width:18px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:0.3s;" id="darkModeKnob"></span></label></div><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);"><span style="font-size:14px;">Hindi / हिंदी</span><label class="toggle-switch" style="position:relative;display:inline-block;width:44px;height:24px;cursor:pointer;"><input type="checkbox" id="hindiToggle" onchange="toggleHindi()" style="opacity:0;width:0;height:0;"><span style="position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:var(--border);border-radius:24px;transition:0.3s;"></span><span style="position:absolute;content:\'\';height:18px;width:18px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:0.3s;" id="hindiKnob"></span></label></div></div>';
         settingsHtml += '<div class="card" style="padding:16px;margin-bottom:12px;"><div style="font-size:16px;font-weight:700;margin-bottom:12px;color:var(--text)"><i class="fas fa-cog" style="color:var(--primary);margin-right:6px;"></i>Settings</div><button class="btn-danger" onclick="openSmartReset()" style="margin-top:0;background:linear-gradient(135deg,#ef4444,#dc2626);"><i class="fas fa-redo"></i> Reset Data</button><button id="installBtn" class="btn-primary" onclick="installApp()" style="margin-top:8px;display:none;background:linear-gradient(135deg,#059669,#10b981);width:100%;"><i class="fas fa-download"></i> Install App on Phone</button></div><div class="card" style="padding:16px;"><div style="font-size:12px;color:var(--text-light);line-height:1.5;"><div style="font-weight:700;color:var(--text);margin-bottom:6px;">About HSR Leader board Leaderboard</div><p>v1.0 - Live Sales & Collection & Activities Tracker</p><p>Features: Admin/User roles, State restrictions, Live data tracking</p><p style="margin-top:8px;">Logged in as: <strong>'+currentUser.name+'</strong> ('+currentUser.role+')</p></div></div></div>';
@@ -2447,8 +2582,8 @@ async function handleChangePassword(e) {
     // Update session
     currentUser = { ...user };
     delete currentUser.password;
-    localStorage.setItem('bizsetu_session', JSON.stringify(currentUser));
-    localStorage.setItem('bizsetu_session_expiry', String(Date.now() + 7 * 24 * 60 * 60 * 1000));
+    setAppCookie('hsr_session', JSON.stringify(currentUser), 7);
+    setAppCookie('hsr_session_expiry', String(Date.now() + 7 * 24 * 60 * 60 * 1000), 7);
 
     showToast('Password updated successfully!', 'success');
     e.target.reset();
@@ -2668,7 +2803,7 @@ function installApp() {
 
 function showInstallBanner() {
     var banner = document.getElementById('installBanner');
-    var dismissed = localStorage.getItem('bizsetu_installDismissed');
+    var dismissed = getAppCookie('hsr_install_dismissed');
     var isStandalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
     if (!isStandalone && !dismissed && banner) banner.classList.add('show');
 }
@@ -2676,7 +2811,7 @@ function showInstallBanner() {
 function dismissInstall() {
     var banner = document.getElementById('installBanner');
     if (banner) banner.style.display = 'none';
-    localStorage.setItem('bizsetu_installDismissed', '1');
+    setAppCookie('hsr_install_dismissed', '1', 30);
 }
 
 // Auto-show install hint after 2 seconds
@@ -2684,7 +2819,7 @@ document.addEventListener('DOMContentLoaded', function(){
     setTimeout(function(){
         var isStandalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
         if (isStandalone) return; // Already installed
-        var dismissed = localStorage.getItem('bizsetu_installDismissed');
+        var dismissed = getAppCookie('hsr_install_dismissed');
         if (dismissed) return;
         // iOS: always show since beforeinstallprompt doesn't fire
         if (isIOS) { showInstallBanner(); return; }

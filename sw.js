@@ -1,4 +1,4 @@
-const CACHE_NAME = 'hsr-leaderboard-v4';
+const CACHE_NAME = 'hsr-leaderboard-v6';
 const urlsToCache = [
   '/',
   '/index.html'
