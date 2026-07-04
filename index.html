@@ -874,7 +874,7 @@ function indiaDateString() {
 
 async function performCloudRollover() {
     if (!isSupabaseReady) return null;
-    var { data, error } = await sb.rpc('hsr_rollover');
+    var { data, error } = await sb.rpc('hsr_rollover', { p_today: indiaDateString() });
     if (error) throw error;
     rolloverInfo = data || null;
     cloudBusinessDate = data && data.business_date ? data.business_date : indiaDateString();
