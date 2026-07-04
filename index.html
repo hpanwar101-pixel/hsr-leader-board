@@ -465,19 +465,20 @@ body { font-family:'Inter',sans-serif; background: var(--bg); color:var(--text);
 <div class="modal-overlay" id="editModal">
     <div class="modal-content card">
         <div class="modal-header">
-            <div class="modal-title">Update Figures</div>
+            <div class="modal-title" id="editModalTitle">Update Figures</div>
             <button class="modal-close" onclick="closeModal('editModal')"><i class="fas fa-times"></i></button>
         </div>
         <form id="editForm" onsubmit="handleEditSubmit(event)">
             <input type="hidden" id="editPersonId">
             <input type="hidden" id="editState">
             <div class="form-group"><label class="form-label">Person Name</label><input type="text" class="form-input" id="editName" readonly></div>
-            <div class="form-group"><label class="form-label" style="color:var(--text-muted);">Plan Sales (₹)</label><input type="number" class="form-input" id="editPlanSales" placeholder="Enter plan sales" style="background:#f0f9ff;border-color:#bae6fd;"></div>
-            <div class="form-group"><label class="form-label" style="color:var(--text-muted);">Plan Collection (₹)</label><input type="number" class="form-input" id="editPlanCollection" placeholder="Enter plan collection" style="background:#f0f9ff;border-color:#bae6fd;"></div>
+            <div id="editModeNote" style="font-size:11px;line-height:1.5;padding:9px 10px;border-radius:8px;background:rgba(79,70,229,.08);color:var(--text-light);margin-bottom:10px;"></div>
+            <div class="form-group"><label class="form-label" id="editPlanSalesLabel" style="color:var(--text-muted);">Plan Sales (₹)</label><input type="number" min="0" class="form-input" id="editPlanSales" placeholder="Enter plan sales" style="background:#f0f9ff;border-color:#bae6fd;"></div>
+            <div class="form-group"><label class="form-label" id="editPlanCollectionLabel" style="color:var(--text-muted);">Plan Collection (₹)</label><input type="number" min="0" class="form-input" id="editPlanCollection" placeholder="Enter plan collection" style="background:#f0f9ff;border-color:#bae6fd;"></div>
             <div style="border-top:1px solid var(--border);margin:8px 0;"></div>
-            <div class="form-group"><label class="form-label">Actual Sales (₹)</label><input type="number" class="form-input" id="editSales" placeholder="Enter actual sales" required></div>
-            <div class="form-group"><label class="form-label">Actual Collection (₹)</label><input type="number" class="form-input" id="editCollection" placeholder="Enter actual collection" required></div>
-            <div style="border-top:2px solid var(--border);margin:12px 0;padding-top:8px;"><div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:8px;"><i class="fas fa-boxes" style="margin-right:4px;"></i>Products</div>
+            <div class="form-group"><label class="form-label" id="editSalesLabel">Actual Sales (₹)</label><input type="number" min="0" class="form-input" id="editSales" placeholder="Enter actual sales" required></div>
+            <div class="form-group"><label class="form-label" id="editCollectionLabel">Actual Collection (₹)</label><input type="number" min="0" class="form-input" id="editCollection" placeholder="Enter actual collection" required></div>
+            <div id="editProductsSection" style="border-top:2px solid var(--border);margin:12px 0;padding-top:8px;"><div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:8px;"><i class="fas fa-boxes" style="margin-right:4px;"></i>Products</div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
                 <div><label class="form-label" style="font-size:10px;">Urea (Qty)</label><input type="number" class="form-input" id="editUreaQty" placeholder="Qty" style="font-size:12px;padding:8px;"></div>
                 <div><label class="form-label" style="font-size:10px;">Urea (₹)</label><input type="number" class="form-input" id="editUreaAmt" placeholder="Amount" style="font-size:12px;padding:8px;"></div>
@@ -629,6 +630,14 @@ function setupRealtimeListeners() {
         .on('postgres_changes', { event: '*', schema: 'public', table: 'app_users' }, function(payload){
             console.log('Users updated:', payload);
             loadUsersFromSupabase().then(function(){ renderAdminPanel(); });
+        })
+        .subscribe();
+    sb.channel('history_changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_entries' }, function(){
+            loadCloudHistory().then(function(){ if (currentView === 'analytics') renderAnalyticsSection(); });
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'monthly_snapshots' }, function(){
+            loadCloudHistory().then(function(){ if (currentView === 'analytics') renderAnalyticsSection(); });
         })
         .subscribe();
 }
@@ -849,6 +858,112 @@ async function saveData() {
     }
 }
 
+var monthlyHistory = [];
+var dailyHistory = [];
+var rolloverInfo = null;
+var cloudBusinessDate = '';
+
+function indiaDateString() {
+    var parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(new Date());
+    var values = {};
+    parts.forEach(function(part) { if (part.type !== 'literal') values[part.type] = part.value; });
+    return values.year + '-' + values.month + '-' + values.day;
+}
+
+async function performCloudRollover() {
+    if (!isSupabaseReady) return null;
+    var { data, error } = await sb.rpc('hsr_rollover');
+    if (error) throw error;
+    rolloverInfo = data || null;
+    cloudBusinessDate = data && data.business_date ? data.business_date : indiaDateString();
+    return rolloverInfo;
+}
+
+var rolloverCheckRunning = false;
+async function checkAndApplyCloudRollover() {
+    if (rolloverCheckRunning || !isSupabaseReady) return null;
+    rolloverCheckRunning = true;
+    try {
+        var result = await performCloudRollover();
+        if (result && (result.status === 'day_rolled' || result.status === 'month_archived')) {
+            await loadDataFromSupabase();
+            await loadCloudHistory();
+            if (currentView === 'analytics') renderAnalyticsSection();
+            else if (currentView === 'india') renderIndiaSection();
+            else renderStateSection(currentState);
+            showToast(result.status === 'month_archived'
+                ? monthDisplayName(result.archived_month) + ' archived. New month started at zero.'
+                : 'New day started. Today Actual moved to Monthly Actual.', 'success');
+        }
+        return result;
+    } finally {
+        rolloverCheckRunning = false;
+    }
+}
+
+function dailyPlanData(person) {
+    return {
+        sales: person.todayPlanSales || 0,
+        collection: person.todayPlanCollection || 0,
+        farmerContact: person.todayPlanFarmerContact || 0,
+        gfm: person.todayPlanGfm || 0,
+        ofm: person.todayPlanOfm || 0,
+        nightHalt: person.todayPlanNightHalt || 0,
+        dilutionTest: person.todayPlanDilutionTest || 0,
+        demos: person.todayPlanDemos || 0,
+        fieldVisit: person.todayPlanFieldVisit || 0,
+        fieldDay: person.todayPlanFieldDay || 0,
+        dealerAppointment: person.todayPlanDealerAppointment || 0,
+        dealerAppointed: person.todayPlanDealerAppointed || 0
+    };
+}
+
+function dailyActualData(person) {
+    return {
+        sales: person.todaySales || 0,
+        collection: person.todayCollection || 0,
+        farmerContact: person.todayFarmerContact || 0,
+        gfm: person.todayGfm || 0,
+        ofm: person.todayOfm || 0,
+        nightHalt: person.todayNightHalt || 0,
+        dilutionTest: person.todayDilutionTest || 0,
+        demos: person.todayDemos || 0,
+        fieldVisit: person.todayFieldVisit || 0,
+        fieldDay: person.todayFieldDay || 0,
+        dealerAppointment: person.todayDealerAppointment || 0,
+        dealerAppointed: person.todayDealerAppointed || 0
+    };
+}
+
+async function upsertDailyEntryToSupabase(person, stateId) {
+    if (!isSupabaseReady) throw new Error('Supabase connection is not ready');
+    var entryDate = cloudBusinessDate || indiaDateString();
+    var { error } = await sb.from('daily_entries').upsert({
+        entry_date: entryDate,
+        person_id: person.id,
+        state_id: stateId,
+        person_name: person.name,
+        plan_data: dailyPlanData(person),
+        actual_data: dailyActualData(person),
+        updated_at: new Date().toISOString()
+    }, { onConflict: 'entry_date,person_id' });
+    if (error) throw error;
+}
+
+async function loadCloudHistory() {
+    monthlyHistory = [];
+    dailyHistory = [];
+    if (!isSupabaseReady) return;
+    var monthlyResult = await sb.from('monthly_snapshots').select('*').order('month_key', { ascending: false }).limit(1000);
+    if (monthlyResult.error) throw monthlyResult.error;
+    monthlyHistory = monthlyResult.data || [];
+    var dailyResult = await sb.from('daily_entries').select('*').order('entry_date', { ascending: false }).limit(1500);
+    if (dailyResult.error) throw dailyResult.error;
+    dailyHistory = dailyResult.data || [];
+}
+
 // Small UI/session cookies only. All business records remain in Supabase.
 function setAppCookie(name, value, days) {
     var maxAge = Math.max(0, Math.floor(days * 24 * 60 * 60));
@@ -962,37 +1077,25 @@ const DEFAULT_USERS = [
 ];
 
 let currentUser = null;
+var appVisibilityListenerBound = false;
 
 async function initAuth() {
     try { initSupabase(); } catch(e) { console.log('Supabase init skipped'); isSupabaseReady = false; }
-    await loadUsersFromSupabase();
-    await loadDataFromSupabase();
-    // Restore session if exists (valid for 7 days)
+    // Restore the small session cookie immediately so refresh never flashes the login screen.
     const session = getAppCookie('hsr_session');
     const sessionExpiry = getAppCookie('hsr_session_expiry');
-    var sessionValid = true;
+    var cachedSessionRestored = false;
     if (sessionExpiry && Date.now() > parseInt(sessionExpiry)) {
-        sessionValid = false;
         deleteAppCookie('hsr_session');
         deleteAppCookie('hsr_session_expiry');
-    }
-    if (session && sessionValid) {
+    } else if (session) {
         try {
             const sessionUser = JSON.parse(session);
-            const users = getUsers();
-            const validUser = users.find(u => u.id === sessionUser.id);
-            if (validUser) {
-                currentUser = { ...validUser };
-                delete currentUser.password;
-                showMainApp();
-                console.log('Auto-login: session restored for ' + currentUser.name);
-            } else if (sessionUser.id && sessionUser.name && sessionUser.role) {
-                // Keep a valid saved session when cloud user sync is temporarily
-                // unavailable or has not finished yet (common on mobile refresh).
+            if (sessionUser.id && sessionUser.name && sessionUser.role) {
                 currentUser = { ...sessionUser };
                 delete currentUser.password;
                 showMainApp();
-                console.log('Auto-login: cached session restored for ' + currentUser.name);
+                cachedSessionRestored = true;
             } else {
                 deleteAppCookie('hsr_session');
                 deleteAppCookie('hsr_session_expiry');
@@ -1004,8 +1107,35 @@ async function initAuth() {
             currentUser = null; 
         }
     }
+    try { await performCloudRollover(); } catch(e) { console.error('Cloud rollover failed:', e); rolloverInfo = { status: 'error' }; }
+    await loadUsersFromSupabase();
+    await loadDataFromSupabase();
+    try { await loadCloudHistory(); } catch(e) { console.error('Cloud history load failed:', e); }
+    if (cachedSessionRestored && currentUser) {
+        var validUser = getUsers().find(function(user) { return user.id === currentUser.id; });
+        if (validUser) {
+            currentUser = { ...validUser };
+            delete currentUser.password;
+            showMainApp();
+        } else if (getUsers().length > 0) {
+            deleteAppCookie('hsr_session');
+            deleteAppCookie('hsr_session_expiry');
+            currentUser = null;
+            document.getElementById('loginScreen').style.display = 'flex';
+            document.getElementById('mainApp').style.display = 'none';
+        }
+    }
     // Cloud-only mode: keep UI available, but never queue business data locally.
-    window.addEventListener('online', function(){showToast('Back online!', 'success');});
+    window.addEventListener('online', async function(){
+        showToast('Back online! Syncing cloud data...', 'success');
+        try {
+            await performCloudRollover();
+            await loadDataFromSupabase();
+            await loadCloudHistory();
+            if (currentView === 'state') renderStateSection(currentState);
+            if (currentView === 'analytics') renderAnalyticsSection();
+        } catch(e) { showToast('Cloud sync failed: ' + e.message, 'error'); }
+    });
     window.addEventListener('offline', function(){showToast('Offline - cloud changes are unavailable', 'warning');});
 }
 
@@ -1466,11 +1596,14 @@ function showMainApp() {
     document.getElementById('mainApp').style.display = 'block';
 
     // Persist session on page visibility change
-    document.addEventListener('visibilitychange', function() {
-        if (document.visibilityState === 'visible' && currentUser) {
-            console.log('Page visible - session restored');
-        }
-    });
+    if (!appVisibilityListenerBound) {
+        document.addEventListener('visibilitychange', function() {
+            if (document.visibilityState === 'visible' && currentUser) {
+                checkAndApplyCloudRollover().catch(function(e) { console.error('Rollover check failed:', e); });
+            }
+        });
+        appVisibilityListenerBound = true;
+    }
 
     // Update user info in header
     document.getElementById('userName').textContent = currentUser.name;
@@ -1516,6 +1649,11 @@ function showMainApp() {
     checkNotifications();
     rebuildStateTabs();
     renderStateSection(currentState);
+    if (rolloverInfo && rolloverInfo.status === 'month_archived') {
+        showToast(monthDisplayName(rolloverInfo.archived_month) + ' archived in Supabase.', 'success');
+    } else if (rolloverInfo && rolloverInfo.status === 'day_rolled') {
+        showToast('Date changed: daily actual added to monthly actual.', 'success');
+    }
 }
 
 // ==================== ADMIN FUNCTIONS ====================
@@ -2003,6 +2141,10 @@ function formatCurrency(amount) {
 }
 function formatFullCurrency(amount) { return '₹'+amount.toLocaleString('en-IN'); }
 function getInitials(name) { return name.replace(/^(TM-|SSO-) /, '').split(' ').map(n=>n[0]).join('').substring(0,2).toUpperCase(); }
+function actualMetricValue(person, field, period) {
+    var key = period === 'today' ? 'today' + field : field.charAt(0).toLowerCase() + field.slice(1);
+    return person[key] || 0;
+}
 
 function showToast(message, type='success') {
     const container = document.getElementById('toastContainer');
@@ -2013,10 +2155,13 @@ function showToast(message, type='success') {
     setTimeout(()=>toast.remove(), 3000);
 }
 
-function canEdit(personName) {
+function canEdit(person) {
     if (!currentUser) return false;
     if (currentUser.role === 'admin') return true;
-    // User can only edit their own data
+    if (person && typeof person === 'object' && person.id === 'tm-' + currentUser.id) return true;
+    var personName = typeof person === 'string' ? person : (person && person.name ? person.name : '');
+    if (!personName) return false;
+    // Legacy name fallback for older rows that were not linked by UserID.
     const userName = currentUser.name.toLowerCase();
     const pName = personName.toLowerCase().replace(/^(tm-|sso-) /, '');
     return pName.includes(userName) || userName.includes(pName.split(' ')[0]);
@@ -2066,8 +2211,8 @@ function renderStateSection(state) {
     stateCard.className = 'person-card regular';
     stateCard.style.cssText = 'background:linear-gradient(135deg,rgba(79,70,229,0.06),rgba(124,58,237,0.06));border-left:3px solid var(--primary);margin-bottom:8px;';
 
-    var sap = currentPeriod==='today'?'todayPlan':'plan'; var saa = currentPeriod==='today'?'today':'';
-    function sa(field) { var t=0; persons.forEach(function(p){t+=(p[saa+field]||0);});return t; }
+    var sap = currentPeriod==='today'?'todayPlan':'plan';
+    function sa(field) { var t=0; persons.forEach(function(p){t+=actualMetricValue(p,field,currentPeriod);});return t; }
     function sp(field) { var t=0; persons.forEach(function(p){t+=(p[sap+field]||0);});return t; }
     function spctClass(plan,actual) { if(!plan||plan<=0)return''; var pct=(actual/plan)*100;if(pct>=80)return'good';if(pct>=50)return'avg';return'low'; }
     function spctStr(plan,actual) { if(!plan||plan<=0)return'-';return Math.round((actual/plan)*100)+'%'; }
@@ -2121,17 +2266,16 @@ function renderStateSection(state) {
         else if (rank === 2) { rankClass='silver'; cardClass='top-2'; }
         else if (rank === 3) { rankClass='bronze'; cardClass='top-3'; }
         const isSSO = person.role === 'SSO';
-        const editable = canEdit(person.name);
+        const editable = currentUser.role === 'admin' || (currentPeriod === 'today' && canEdit(person));
 
         const card = document.createElement('div');
         card.className = 'card person-card '+cardClass+(isSSO?' sso-card':'')+' animate-in delay-'+(Math.min(index%4+1,4));
 
         let actionsHtml = '';
-        if (editable || currentUser.role === 'admin') {
+        if (editable) {
             actionsHtml = 
                 '<div class="card-actions">'+
-                    '<button class="btn-icon edit" onclick="openEditModal(\''+person.id+'\',\''+state+'\')"><i class="fas fa-edit"></i></button>'+
-                    (currentUser.role === 'admin' ? '<button class="btn-icon delete" onclick="zeroOutPerson(\''+person.id+'\',\''+state+'\')"><i class="fas fa-trash"></i></button>' : '')+
+                    '<button class="btn-icon edit" title="'+(currentPeriod==='today'?'Edit Today Plan & Actual':'Edit Monthly Plan')+'" onclick="openEditModal(\''+person.id+'\',\''+state+'\')"><i class="fas fa-edit"></i></button>'+
                 '</div>';
         }
 
@@ -2139,9 +2283,8 @@ function renderStateSection(state) {
         const planCollection = currentPeriod==='today' ? (person.todayPlanCollection || 0) : (person.planCollection || 0);
 
         // Activities data
-        const actPrefix = currentPeriod === 'today' ? 'today' : '';
         const planPrefix = currentPeriod === 'today' ? 'todayPlan' : 'plan';
-        function a(field) { return (person[actPrefix + field] || 0); }
+        function a(field) { return actualMetricValue(person, field, currentPeriod); }
         function p(field) { return (person[planPrefix + field] || 0); }
         function pctStr(plan, actual) {
             if (!plan || plan <= 0) return '-';
@@ -2236,6 +2379,77 @@ function renderIndiaSection() {
     document.getElementById('india-total-collection').textContent = formatFullCurrency(indiaCollection);
 }
 
+function escapeHtml(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, function(ch) {
+        return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[ch];
+    });
+}
+
+function visibleMonthlyRecords() {
+    if (!currentUser) return [];
+    if (currentUser.role === 'admin' || currentUser.role === 'manager') return monthlyHistory.slice();
+    var personId = 'tm-' + currentUser.id;
+    return monthlyHistory.filter(function(record) { return record.person_id === personId; });
+}
+
+function visibleDailyRecords() {
+    if (!currentUser) return [];
+    if (currentUser.role === 'admin' || currentUser.role === 'manager') return dailyHistory.slice();
+    var personId = 'tm-' + currentUser.id;
+    return dailyHistory.filter(function(record) { return record.person_id === personId; });
+}
+
+function monthDisplayName(monthKey) {
+    var date = new Date(monthKey + '-01T00:00:00');
+    return isNaN(date.getTime()) ? monthKey : date.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+}
+
+function downloadMonthlyHistoryExcel() {
+    var records = visibleMonthlyRecords();
+    if (!records.length) { showToast('No archived monthly records yet.', 'info'); return; }
+    var headers = ['Month','UserID','Name','State','Plan Sales','Actual Sales','Plan Collection','Actual Collection','Farmer Plan','Farmer Actual','GFM Plan','GFM Actual','OFM Plan','OFM Actual','Night Plan','Night Actual','Demos Plan','Demos Actual','Field Visit Plan','Field Visit Actual','Daily Records'];
+    var rows = records.map(function(record) {
+        var plan = record.plan_data || {};
+        var actual = record.actual_data || {};
+        return [record.month_key,String(record.person_id||'').replace(/^tm-/,''),record.person_name,record.state_id,plan.sales||0,actual.sales||0,plan.collection||0,actual.collection||0,plan.farmerContact||0,actual.farmerContact||0,plan.gfm||0,actual.gfm||0,plan.ofm||0,actual.ofm||0,plan.nightHalt||0,actual.nightHalt||0,plan.demos||0,actual.demos||0,plan.fieldVisit||0,actual.fieldVisit||0,(record.daily_records||[]).length];
+    });
+    writeExcelRows('HSR_Monthly_History_' + new Date().toISOString().slice(0,10) + '.xlsx', 'Monthly History', headers, rows);
+}
+
+function renderAnalyticsSection() {
+    var container = document.getElementById('persons-container');
+    if (!container) return;
+    var monthly = visibleMonthlyRecords();
+    var daily = visibleDailyRecords().slice(0, 60);
+    var html = '<div style="padding:14px 0 24px;">';
+    html += '<div class="card" style="padding:14px;margin-bottom:12px;background:linear-gradient(135deg,rgba(79,70,229,.08),rgba(16,185,129,.06));"><div style="font-size:16px;font-weight:800;color:var(--text);"><i class="fas fa-cloud" style="color:var(--primary);margin-right:6px;"></i>Cloud Records</div><div style="font-size:11px;color:var(--text-light);margin-top:6px;line-height:1.5;">Today entries save directly to Supabase. Date change adds Today Actual to Monthly Actual and resets Today Plan/Actual. Today Plan never increases Monthly Plan.</div><button class="user-item-btn" onclick="downloadMonthlyHistoryExcel()" style="margin-top:10px;background:var(--primary);color:#fff;border:none;"><i class="fas fa-file-excel"></i> Export Monthly History</button></div>';
+    html += '<div class="section-title" style="margin:10px 2px;"><i class="fas fa-calendar-alt"></i> Archived Monthly Records</div>';
+    if (!monthly.length) {
+        html += '<div class="card" style="padding:18px;text-align:center;color:var(--text-light);font-size:12px;">No completed month has been archived yet. The first record will appear automatically after a month change.</div>';
+    } else {
+        monthly.forEach(function(record) {
+            var plan = record.plan_data || {};
+            var actual = record.actual_data || {};
+            var dailyCount = (record.daily_records || []).length;
+            html += '<div class="card" style="padding:14px;margin-bottom:10px;border-left:3px solid var(--primary);">'+
+                '<div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;"><div><div style="font-weight:800;color:var(--text);font-size:14px;">'+escapeHtml(record.person_name)+'</div><div style="font-size:11px;color:var(--text-light);">'+escapeHtml(record.state_id)+' • '+dailyCount+' daily records</div></div><span style="font-size:11px;font-weight:800;background:rgba(79,70,229,.1);color:var(--primary);padding:4px 8px;border-radius:10px;">'+escapeHtml(monthDisplayName(record.month_key))+'</span></div>'+
+                '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;"><div style="background:var(--surface-2);padding:9px;border-radius:8px;"><div style="font-size:9px;color:var(--text-light);">SALES — PLAN / ACTUAL</div><div style="font-size:13px;font-weight:800;color:var(--success);">'+formatCurrency(Number(plan.sales||0))+' / '+formatCurrency(Number(actual.sales||0))+'</div></div><div style="background:var(--surface-2);padding:9px;border-radius:8px;"><div style="font-size:9px;color:var(--text-light);">COLLECTION — PLAN / ACTUAL</div><div style="font-size:13px;font-weight:800;color:var(--info);">'+formatCurrency(Number(plan.collection||0))+' / '+formatCurrency(Number(actual.collection||0))+'</div></div></div></div>';
+        });
+    }
+    html += '<div class="section-title" style="margin:16px 2px 10px;"><i class="fas fa-calendar-day"></i> Daily History</div>';
+    if (!daily.length) {
+        html += '<div class="card" style="padding:18px;text-align:center;color:var(--text-light);font-size:12px;">No daily record saved yet.</div>';
+    } else {
+        daily.forEach(function(record) {
+            var plan = record.plan_data || {};
+            var actual = record.actual_data || {};
+            html += '<div class="card" style="padding:11px 13px;margin-bottom:8px;display:flex;justify-content:space-between;gap:10px;align-items:center;"><div><div style="font-size:12px;font-weight:700;color:var(--text);">'+escapeHtml(record.person_name)+'</div><div style="font-size:10px;color:var(--text-light);">'+escapeHtml(record.entry_date)+' • '+escapeHtml(record.state_id)+'</div></div><div style="text-align:right;font-size:10px;line-height:1.5;"><div style="color:var(--success);">Sales '+formatCurrency(Number(plan.sales||0))+' / '+formatCurrency(Number(actual.sales||0))+'</div><div style="color:var(--info);">Coll. '+formatCurrency(Number(plan.collection||0))+' / '+formatCurrency(Number(actual.collection||0))+'</div></div></div>';
+        });
+    }
+    html += '</div>';
+    container.innerHTML = html;
+}
+
 function switchView(view) {
     currentView = view;
     // Admin panel only shows in state view
@@ -2256,7 +2470,7 @@ function switchView(view) {
         renderIndiaSection();
     } else if (view === 'analytics') {
         document.getElementById('section-state').classList.add('active');
-        document.getElementById('persons-container').innerHTML = '<div class="empty-state"><i class="fas fa-chart-pie"></i><div style="font-size:16px;font-weight:700;margin-bottom:6px;color:var(--text)">Analytics Coming Soon</div><div style="font-size:12px;color:var(--text-light)">Detailed charts and reports will be available here.</div></div>';
+        renderAnalyticsSection();
     } else if (view === 'adduser') {
         if (currentUser.role !== 'admin') {
             showToast('Admin only!', 'error');
@@ -2302,17 +2516,35 @@ function updateStateTabs() {
 function openEditModal(personId, state) {
     const person = dataStore[state].persons.find(p => p.id === personId);
     if (!person) return;
-    if (!canEdit(person.name)) {
+    var isDaily = currentPeriod === 'today';
+    if (!isDaily && currentUser.role !== 'admin') {
+        showToast('Monthly Plan can be changed by admin only.', 'error');
+        return;
+    }
+    if (isDaily && !canEdit(person)) {
         showToast('You can only edit your own data!', 'error');
         return;
     }
     document.getElementById('editPersonId').value = personId;
     document.getElementById('editState').value = state;
     document.getElementById('editName').value = person.name;
-    document.getElementById('editPlanSales').value = currentPeriod==='today' ? (person.todayPlanSales || 0) : (person.planSales || 0);
-    document.getElementById('editPlanCollection').value = currentPeriod==='today' ? (person.todayPlanCollection || 0) : (person.planCollection || 0);
-    document.getElementById('editSales').value = currentPeriod==='today' ? person.todaySales : person.sales;
-    document.getElementById('editCollection').value = currentPeriod==='today' ? person.todayCollection : person.collection;
+    document.getElementById('editModalTitle').textContent = isDaily ? "Today's Plan & Actual" : 'Monthly Plan (Admin)';
+    document.getElementById('editModeNote').innerHTML = isDaily
+        ? '<i class="fas fa-calendar-day"></i> Enter your own plan and actual for today. It saves directly to Supabase.'
+        : '<i class="fas fa-lock"></i> Admin can change Monthly Plan. Monthly Actual is calculated automatically from daily actuals.';
+    document.getElementById('editPlanSalesLabel').textContent = isDaily ? 'Today Plan Sales (₹)' : 'Monthly Plan Sales (₹)';
+    document.getElementById('editPlanCollectionLabel').textContent = isDaily ? 'Today Plan Collection (₹)' : 'Monthly Plan Collection (₹)';
+    document.getElementById('editSalesLabel').textContent = isDaily ? 'Today Actual Sales (₹)' : 'Monthly Actual Sales — Automatic (₹)';
+    document.getElementById('editCollectionLabel').textContent = isDaily ? 'Today Actual Collection (₹)' : 'Monthly Actual Collection — Automatic (₹)';
+    document.getElementById('editPlanSales').value = isDaily ? (person.todayPlanSales || 0) : (person.planSales || 0);
+    document.getElementById('editPlanCollection').value = isDaily ? (person.todayPlanCollection || 0) : (person.planCollection || 0);
+    document.getElementById('editSales').value = isDaily ? (person.todaySales || 0) : (person.sales || 0);
+    document.getElementById('editCollection').value = isDaily ? (person.todayCollection || 0) : (person.collection || 0);
+    document.getElementById('editSales').readOnly = !isDaily;
+    document.getElementById('editCollection').readOnly = !isDaily;
+    document.getElementById('editSales').style.opacity = isDaily ? '1' : '.65';
+    document.getElementById('editCollection').style.opacity = isDaily ? '1' : '.65';
+    document.getElementById('editProductsSection').style.display = 'none';
     // Load products
     var prods = ['Urea','Dap','Seeds','Pesti','Fert'];
     prods.forEach(function(prod){
@@ -2322,14 +2554,18 @@ function openEditModal(personId, state) {
         if(amtEl) amtEl.value = person[prod.toLowerCase()+'Amt'] || 0;
     });
     // Load activities
-    const ap = currentPeriod === 'today' ? 'todayPlan' : 'plan';
-    const aa = currentPeriod === 'today' ? 'today' : '';
+    const ap = isDaily ? 'todayPlan' : 'plan';
     const acts = ['FarmerContact','Gfm','Ofm','NightHalt','DilutionTest','Demos','FieldVisit','FieldDay','DealerAppointment','DealerAppointed'];
     acts.forEach(function(a){
         var planEl = document.getElementById('editPlan'+a);
         var actEl = document.getElementById('editAct'+a);
         if(planEl) planEl.value = person[ap+a] || 0;
-        if(actEl) actEl.value = person[aa+a] || 0;
+        var actualKey = isDaily ? 'today' + a : a.charAt(0).toLowerCase() + a.slice(1);
+        if(actEl) {
+            actEl.value = person[actualKey] || 0;
+            actEl.readOnly = !isDaily;
+            actEl.style.opacity = isDaily ? '1' : '.65';
+        }
     });
     document.getElementById('deleteBtn').style.display = currentUser.role === 'admin' ? 'block' : 'none';
     document.getElementById('editModal').classList.add('show');
@@ -2361,16 +2597,31 @@ async function handleEditSubmit(e) {
     e.preventDefault();
     const personId = document.getElementById('editPersonId').value;
     const state = document.getElementById('editState').value;
-    const planSales = parseInt(document.getElementById('editPlanSales').value) || 0;
-    const planCollection = parseInt(document.getElementById('editPlanCollection').value) || 0;
-    const sales = parseInt(document.getElementById('editSales').value) || 0;
-    const collection = parseInt(document.getElementById('editCollection').value) || 0;
+    const isDaily = currentPeriod === 'today';
+    const planSales = Math.max(0, parseInt(document.getElementById('editPlanSales').value) || 0);
+    const planCollection = Math.max(0, parseInt(document.getElementById('editPlanCollection').value) || 0);
+    const sales = Math.max(0, parseInt(document.getElementById('editSales').value) || 0);
+    const collection = Math.max(0, parseInt(document.getElementById('editCollection').value) || 0);
+    try {
+        var rollover = await performCloudRollover();
+        if (rollover && (rollover.status === 'day_rolled' || rollover.status === 'month_archived')) {
+            await loadDataFromSupabase();
+            await loadCloudHistory();
+            renderStateSection(currentState);
+            closeModal('editModal');
+            showToast('Date changed. Daily fields were reset; please enter today\'s numbers again.', 'info');
+            return;
+        }
+    } catch (rolloverError) {
+        showToast('Date sync failed: ' + rolloverError.message, 'error');
+        return;
+    }
     const person = dataStore[state].persons.find(p => p.id === personId);
     if (!person) { showToast('Person not found!', 'error'); closeModal('editModal'); return; }
-    if (!canEdit(person.name)) {
+    if ((!isDaily && currentUser.role !== 'admin') || (isDaily && !canEdit(person))) {
         showToast('Permission denied!', 'error'); closeModal('editModal'); return;
     }
-    if (currentPeriod === 'today') {
+    if (isDaily) {
         person.todayPlanSales = planSales;
         person.todayPlanCollection = planCollection;
         person.todaySales = sales;
@@ -2378,33 +2629,31 @@ async function handleEditSubmit(e) {
     } else {
         person.planSales = planSales;
         person.planCollection = planCollection;
-        person.sales = sales;
-        person.collection = collection;
     }
-    // Save products
-    ['Urea','Dap','Seeds','Pesti','Fert'].forEach(function(prod){
-        var qtyVal = parseInt(document.getElementById('edit'+prod+'Qty').value) || 0;
-        var amtVal = parseInt(document.getElementById('edit'+prod+'Amt').value) || 0;
-        person[prod.toLowerCase()+'Qty'] = qtyVal;
-        person[prod.toLowerCase()+'Amt'] = amtVal;
-    });
     // Save activities
-    const pPre = currentPeriod === 'today' ? 'todayPlan' : 'plan';
-    const aPre = currentPeriod === 'today' ? 'today' : '';
+    const pPre = isDaily ? 'todayPlan' : 'plan';
     const actFields = ['FarmerContact','Gfm','Ofm','NightHalt','DilutionTest','Demos','FieldVisit','FieldDay','DealerAppointment','DealerAppointed'];
     actFields.forEach(function(f){
-        var planVal = parseInt(document.getElementById('editPlan'+f).value) || 0;
-        var actVal = parseInt(document.getElementById('editAct'+f).value) || 0;
+        var planVal = Math.max(0, parseInt(document.getElementById('editPlan'+f).value) || 0);
         person[pPre+f] = planVal;
-        person[aPre+f] = actVal;
+        if (isDaily) {
+            var actVal = Math.max(0, parseInt(document.getElementById('editAct'+f).value) || 0);
+            person['today'+f] = actVal;
+        }
     });
     person.lastUpdated = Date.now();
-    saveData();
-    if (isSupabaseReady && person) {
+    try {
         await upsertPersonToSupabase(person, state);
+        if (isDaily) await upsertDailyEntryToSupabase(person, state);
+        await loadDataFromSupabase();
+        await loadCloudHistory();
+    } catch (saveError) {
+        await loadDataFromSupabase();
+        showToast('Supabase save failed: ' + saveError.message, 'error');
+        return;
     }
     renderStateSection(currentState);
-    showToast('Updated!');
+    showToast(isDaily ? 'Today Plan & Actual saved to Supabase!' : 'Monthly Plan saved to Supabase!');
     closeModal('editModal');
 }
 
@@ -2605,11 +2854,16 @@ document.querySelectorAll('.modal-overlay').forEach(overlay => {
     overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.classList.remove('show'); });
 });
 
-setInterval(() => {
+setInterval(async () => {
     if (!currentUser) return;
+    try {
+        var rollover = await checkAndApplyCloudRollover();
+        if (rollover && (rollover.status === 'day_rolled' || rollover.status === 'month_archived')) return;
+    } catch(e) { console.error('Scheduled rollover check failed:', e); }
     if (currentView === 'state') renderStateSection(currentState);
     else if (currentView === 'india') renderIndiaSection();
-}, 30000);
+    else if (currentView === 'analytics') renderAnalyticsSection();
+}, 60000);
 
 function exportToPDF(personId, state) {
     if (!window.jspdf || !window.jspdf.jsPDF) { showToast('PDF library loading... please try again in a moment.','error'); return; }
@@ -2620,20 +2874,21 @@ function exportToPDF(personId, state) {
     doc.setFontSize(11); doc.text('Name: ' + person.name + ' | District: ' + person.district + ' | State: ' + stateNames[state],105,30,{align:'center'});
     doc.setFontSize(10); doc.text('Period: ' + (currentPeriod==='today'?'Today':'This Month') + ' | Date: ' + new Date().toLocaleDateString('en-IN'),105,36,{align:'center'});
     // Activities table
-    var ap = currentPeriod==='today'?'todayPlan':'plan'; var aa = currentPeriod==='today'?'today':'';
+    var ap = currentPeriod==='today'?'todayPlan':'plan';
+    function actualValue(field) { return actualMetricValue(person, field, currentPeriod); }
     var activities = [
-        ['Sales', person[ap+'Sales']||0, person[aa+'Sales']||0],
-        ['Collection', person[ap+'Collection']||0, person[aa+'Collection']||0],
-        ['Farmer Contact', person[ap+'FarmerContact']||0, person[aa+'FarmerContact']||0],
-        ['GFM', person[ap+'Gfm']||0, person[aa+'Gfm']||0],
-        ['OFM', person[ap+'Ofm']||0, person[aa+'Ofm']||0],
-        ['Night Halt', person[ap+'NightHalt']||0, person[aa+'NightHalt']||0],
-        ['Dilution Test', person[ap+'DilutionTest']||0, person[aa+'DilutionTest']||0],
-        ['Demos', person[ap+'Demos']||0, person[aa+'Demos']||0],
-        ['Field Visit', person[ap+'FieldVisit']||0, person[aa+'FieldVisit']||0],
-        ['Field Day', person[ap+'FieldDay']||0, person[aa+'FieldDay']||0],
-        ['Dealer Appointment', person[ap+'DealerAppointment']||0, person[aa+'DealerAppointment']||0],
-        ['Dealer Appointed', person[ap+'DealerAppointed']||0, person[aa+'DealerAppointed']||0]
+        ['Sales', person[ap+'Sales']||0, actualValue('Sales')],
+        ['Collection', person[ap+'Collection']||0, actualValue('Collection')],
+        ['Farmer Contact', person[ap+'FarmerContact']||0, actualValue('FarmerContact')],
+        ['GFM', person[ap+'Gfm']||0, actualValue('Gfm')],
+        ['OFM', person[ap+'Ofm']||0, actualValue('Ofm')],
+        ['Night Halt', person[ap+'NightHalt']||0, actualValue('NightHalt')],
+        ['Dilution Test', person[ap+'DilutionTest']||0, actualValue('DilutionTest')],
+        ['Demos', person[ap+'Demos']||0, actualValue('Demos')],
+        ['Field Visit', person[ap+'FieldVisit']||0, actualValue('FieldVisit')],
+        ['Field Day', person[ap+'FieldDay']||0, actualValue('FieldDay')],
+        ['Dealer Appointment', person[ap+'DealerAppointment']||0, actualValue('DealerAppointment')],
+        ['Dealer Appointed', person[ap+'DealerAppointed']||0, actualValue('DealerAppointed')]
     ];
     // Simple table rendering
     var y = 50, colX = [20,70,110,150];
@@ -2653,21 +2908,17 @@ function exportToExcel(personId, state) {
     if (!window.XLSX) { showToast('Excel library loading... please try again in a moment.','error'); return; }
     var person = dataStore[state].persons.find(function(p){return p.id===personId;});
     if (!person) return;
-    var ap = currentPeriod==='today'?'todayPlan':'plan'; var aa = currentPeriod==='today'?'today':'';
-    var data = [
-        ['Activity','Plan','Actual','Percent'],
-        ['Sales', person[ap+'Sales']||0, person[aa+'Sales']||0, ((person[ap+'Sales']||0)>0?Math.round(((person[aa+'Sales']||0)/(person[ap+'Sales']||0))*100)+'%':'-')],
-        ['Collection', person[ap+'Collection']||0, person[aa+'Collection']||0, ((person[ap+'Collection']||0)>0?Math.round(((person[aa+'Collection']||0)/(person[ap+'Collection']||0))*100)+'%':'-')],
-        ['Farmer Contact', person[ap+'FarmerContact']||0, person[aa+'FarmerContact']||0, ((person[ap+'FarmerContact']||0)>0?Math.round(((person[aa+'FarmerContact']||0)/(person[ap+'FarmerContact']||0))*100)+'%':'-')],
-        ['GFM', person[ap+'Gfm']||0, person[aa+'Gfm']||0, ((person[ap+'Gfm']||0)>0?Math.round(((person[aa+'Gfm']||0)/(person[ap+'Gfm']||0))*100)+'%':'-')],
-        ['OFM', person[ap+'Ofm']||0, person[aa+'Ofm']||0, ((person[ap+'Ofm']||0)>0?Math.round(((person[aa+'Ofm']||0)/(person[ap+'Ofm']||0))*100)+'%':'-')],
-        ['Night Halt', person[ap+'NightHalt']||0, person[aa+'NightHalt']||0, ((person[ap+'NightHalt']||0)>0?Math.round(((person[aa+'NightHalt']||0)/(person[ap+'NightHalt']||0))*100)+'%':'-')],
-        ['Dilution Test', person[ap+'DilutionTest']||0, person[aa+'DilutionTest']||0, ((person[ap+'DilutionTest']||0)>0?Math.round(((person[aa+'DilutionTest']||0)/(person[ap+'DilutionTest']||0))*100)+'%':'-')],
-        ['Demos', person[ap+'Demos']||0, person[aa+'Demos']||0, ((person[ap+'Demos']||0)>0?Math.round(((person[aa+'Demos']||0)/(person[ap+'Demos']||0))*100)+'%':'-')],
-        ['Field Visit', person[ap+'FieldVisit']||0, person[aa+'FieldVisit']||0, ((person[ap+'FieldVisit']||0)>0?Math.round(((person[aa+'FieldVisit']||0)/(person[ap+'FieldVisit']||0))*100)+'%':'-')],
-        ['Field Day', person[ap+'FieldDay']||0, person[aa+'FieldDay']||0, ((person[ap+'FieldDay']||0)>0?Math.round(((person[aa+'FieldDay']||0)/(person[ap+'FieldDay']||0))*100)+'%':'-')],
-        ['Dealer Appointment', person[ap+'DealerAppointment']||0, person[aa+'DealerAppointment']||0, ((person[ap+'DealerAppointment']||0)>0?Math.round(((person[aa+'DealerAppointment']||0)/(person[ap+'DealerAppointment']||0))*100)+'%':'-')],
-        ['Dealer Appointed', person[ap+'DealerAppointed']||0, person[aa+'DealerAppointed']||0, ((person[ap+'DealerAppointed']||0)>0?Math.round(((person[aa+'DealerAppointed']||0)/(person[ap+'DealerAppointed']||0))*100)+'%':'-')]
+    var ap = currentPeriod==='today'?'todayPlan':'plan';
+    function excelRow(label, field) {
+        var plan = person[ap+field] || 0;
+        var actual = actualMetricValue(person, field, currentPeriod);
+        return [label, plan, actual, plan > 0 ? Math.round((actual/plan)*100)+'%' : '-'];
+    }
+    var data = [['Activity','Plan','Actual','Percent'],
+        excelRow('Sales','Sales'), excelRow('Collection','Collection'), excelRow('Farmer Contact','FarmerContact'),
+        excelRow('GFM','Gfm'), excelRow('OFM','Ofm'), excelRow('Night Halt','NightHalt'),
+        excelRow('Dilution Test','DilutionTest'), excelRow('Demos','Demos'), excelRow('Field Visit','FieldVisit'),
+        excelRow('Field Day','FieldDay'), excelRow('Dealer Appointment','DealerAppointment'), excelRow('Dealer Appointed','DealerAppointed')
     ];
     var ws = window.XLSX.utils.aoa_to_sheet(data);
     var wb = window.XLSX.utils.book_new();
@@ -2683,8 +2934,8 @@ function exportStateToPDF(state) {
     doc.setFontSize(16); doc.text('HSR Leader Board - State Activities Report',105,20,{align:'center'});
     doc.setFontSize(12); doc.text('State: ' + stateNames[state] + ' | Team: ' + persons.length + ' members',105,28,{align:'center'});
     doc.setFontSize(10); doc.text('Period: ' + (currentPeriod==='today'?'Today':'This Month') + ' | Date: ' + new Date().toLocaleDateString('en-IN'),105,34,{align:'center'});
-    var sap = currentPeriod==='today'?'todayPlan':'plan'; var saa = currentPeriod==='today'?'today':'';
-    function sAct(field) { var t=0; persons.forEach(function(p){t+=(p[saa+field]||0);}); return t; }
+    var sap = currentPeriod==='today'?'todayPlan':'plan';
+    function sAct(field) { var t=0; persons.forEach(function(p){t+=actualMetricValue(p,field,currentPeriod);}); return t; }
     function sPlan(field) { var t=0; persons.forEach(function(p){t+=(p[sap+field]||0);}); return t; }
     var activities = [
         ['Sales', sPlan('Sales'), sAct('Sales')],
@@ -2719,15 +2970,15 @@ function shareWhatsApp(personId, state) {
     var person = dataStore[state].persons.find(function(p){return p.id===personId;});
     if (!person) return;
     var ap = currentPeriod==='today'?'todayPlan':'plan';
-    var aa = currentPeriod==='today'?'today':'';
+    function shareActual(field) { return actualMetricValue(person, field, currentPeriod); }
     var text = '*HSR Leader Board - ' + person.name + '*\n';
     text += 'State: ' + stateNames[state] + ' | District: ' + person.district + '\n\n';
-    text += '*Sales:* Plan ₹' + (person[ap+'Sales']||0) + ' | Actual ₹' + (person[aa+'Sales']||0) + '\n';
-    text += '*Collection:* Plan ₹' + (person[ap+'Collection']||0) + ' | Actual ₹' + (person[aa+'Collection']||0) + '\n';
-    text += '*Farmer Contact:* ' + (person[aa+'FarmerContact']||0) + '/' + (person[ap+'FarmerContact']||0) + '\n';
-    text += '*Demos:* ' + (person[aa+'Demos']||0) + '/' + (person[ap+'Demos']||0) + '\n';
-    text += '*Field Visit:* ' + (person[aa+'FieldVisit']||0) + '/' + (person[ap+'FieldVisit']||0) + '\n';
-    text += '*Night Halt:* ' + (person[aa+'NightHalt']||0) + '/' + (person[ap+'NightHalt']||0);
+    text += '*Sales:* Plan ₹' + (person[ap+'Sales']||0) + ' | Actual ₹' + shareActual('Sales') + '\n';
+    text += '*Collection:* Plan ₹' + (person[ap+'Collection']||0) + ' | Actual ₹' + shareActual('Collection') + '\n';
+    text += '*Farmer Contact:* ' + shareActual('FarmerContact') + '/' + (person[ap+'FarmerContact']||0) + '\n';
+    text += '*Demos:* ' + shareActual('Demos') + '/' + (person[ap+'Demos']||0) + '\n';
+    text += '*Field Visit:* ' + shareActual('FieldVisit') + '/' + (person[ap+'FieldVisit']||0) + '\n';
+    text += '*Night Halt:* ' + shareActual('NightHalt') + '/' + (person[ap+'NightHalt']||0);
     var url = 'https://wa.me/?text=' + encodeURIComponent(text);
     window.open(url, '_blank');
 }
@@ -2736,8 +2987,8 @@ function exportStateToExcel(state) {
     if (!window.XLSX) { showToast('Excel library loading... please try again in a moment.','error'); return; }
     var persons = dataStore[state].persons;
     if (!persons || persons.length === 0) return;
-    var sap = currentPeriod==='today'?'todayPlan':'plan'; var saa = currentPeriod==='today'?'today':'';
-    function sAct(field) { var t=0; persons.forEach(function(p){t+=(p[saa+field]||0);}); return t; }
+    var sap = currentPeriod==='today'?'todayPlan':'plan';
+    function sAct(field) { var t=0; persons.forEach(function(p){t+=actualMetricValue(p,field,currentPeriod);}); return t; }
     function sPlan(field) { var t=0; persons.forEach(function(p){t+=(p[sap+field]||0);}); return t; }
     function spct(plan,actual) { if(!plan||plan<=0)return'-'; return Math.round((actual/plan)*100)+'%'; }
     var data = [
